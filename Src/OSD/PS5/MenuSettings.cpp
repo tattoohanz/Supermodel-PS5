@@ -18,20 +18,95 @@
 #include "Supermodel.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
+/*
+ * The settings, from the desktop build's (OSD/SDL/Gui.cpp) that work on the
+ * PS5's Vulkan renderer. Each choice sets all its keys; the menu shows the
+ * choice whose keys all match what the game gets, else the first whose
+ * first key does. The first three are also shown while the box is closed.
+ * All apply when the game starts.
+ */
 const std::vector<MenuSettingDef> &MenuSettingDefs()
 {
-  // Picture: the Model 3's own 4:3, or Supermodel's widescreen, where the 3D
-  // scene fills the width (and the background layer is stretched with it;
-  // the 2D layer over the scene, the HUD, stays 4:3 in the middle).
   static const std::vector<MenuSettingDef> defs = {
+    // The Model 3's own 4:3; Supermodel's widescreen, where the 3D scene
+    // and the background layer fill the width (the HUD stays 4:3 in the
+    // middle); or the 4:3 picture stretched over the screen.
     { "Picture", {
-      { "4:3", { { "WideScreen", "0" }, { "WideBackground", "0" } } },
-      { "16:9", { { "WideScreen", "1" }, { "WideBackground", "1" } } },
+      { "4:3", { { "WideScreen", "0" }, { "WideBackground", "0" }, { "Stretch", "0" } } },
+      { "16:9", { { "WideScreen", "1" }, { "WideBackground", "1" }, { "Stretch", "0" } } },
+      { "Stretched", { { "WideScreen", "0" }, { "WideBackground", "0" }, { "Stretch", "1" } } },
+    } },
+    // The emulated PowerPC's clock: below the real one a game needs less of
+    // the console (Sega Rally 2 is at 120 MHz by default for 60 FPS).
+    { "PowerPC", {
+      { "Real", { { "PowerPCFrequency", "0" } } },
+      { "166 MHz", { { "PowerPCFrequency", "166" } } },
+      { "150 MHz", { { "PowerPCFrequency", "150" } } },
+      { "133 MHz", { { "PowerPCFrequency", "133" } } },
+      { "120 MHz", { { "PowerPCFrequency", "120" } } },
+      { "100 MHz", { { "PowerPCFrequency", "100" } } },
+    } },
+    // The desktop's CRT presets (Gui.cpp): 720 or 360 scanlines on 2160 rows.
+    { "CRT filter", {
+      { "Off", { { "PostCRT", "0" } } },
+      { "Scanlines", { { "PostCRT", "1" }, { "PostScanlines", "0" }, { "PostScanlineIntensity", "60" } } },
+      { "CRT fine", { { "PostCRT", "2" }, { "PostMaskType", "1" }, { "PostScanlines", "720" },
+        { "PostMaskScale", "3" }, { "PostScanlineIntensity", "70" }, { "PostMaskIntensity", "35" }, { "PostGain", "167" } } },
+      { "CRT arcade", { { "PostCRT", "2" }, { "PostMaskType", "1" }, { "PostScanlines", "360" },
+        { "PostMaskScale", "3" }, { "PostScanlineIntensity", "70" }, { "PostMaskIntensity", "35" }, { "PostGain", "167" } } },
+    } },
+    { "Anti-aliasing", {
+      { "Off", { { "PostFXAA", "0" }, { "MSAA", "0" } } },
+      { "FXAA", { { "PostFXAA", "1" }, { "MSAA", "0" } } },
+      { "MSAA 2x", { { "PostFXAA", "0" }, { "MSAA", "2" } } },
+      { "MSAA 4x", { { "PostFXAA", "0" }, { "MSAA", "4" } } },
+    } },
+    // The game's own bezel (Bezels/<set>.png) beside a 4:3 picture.
+    { "Bezel", {
+      { "On", { { "BezelMode", "1" } } },
+      { "Off", { { "BezelMode", "0" } } },
+    } },
+    { "Glow", {
+      { "Off", { { "PostGlow", "0" } } },
+      { "Soft", { { "PostGlow", "30" } } },
+      { "Strong", { { "PostGlow", "60" } } },
+    } },
+    { "Music", {
+      { "0%", { { "MusicVolume", "0" } } }, { "25%", { { "MusicVolume", "25" } } }, { "50%", { { "MusicVolume", "50" } } },
+      { "75%", { { "MusicVolume", "75" } } }, { "100%", { { "MusicVolume", "100" } } }, { "125%", { { "MusicVolume", "125" } } },
+      { "150%", { { "MusicVolume", "150" } } }, { "200%", { { "MusicVolume", "200" } } },
+    } },
+    { "Sound effects", {
+      { "0%", { { "SoundVolume", "0" } } }, { "25%", { { "SoundVolume", "25" } } }, { "50%", { { "SoundVolume", "50" } } },
+      { "75%", { { "SoundVolume", "75" } } }, { "100%", { { "SoundVolume", "100" } } }, { "125%", { { "SoundVolume", "125" } } },
+      { "150%", { { "SoundVolume", "150" } } }, { "200%", { { "SoundVolume", "200" } } },
     } },
   };
   return defs;
+}
+
+std::string MenuSettingNormal(const std::string &value)
+{
+  std::string v;
+  for (char ch : value)
+    if (ch != ' ' && ch != '\t')
+      v += (char)tolower((unsigned char)ch);
+  if (v == "true" || v == "yes" || v == "on")
+    return "1";
+  if (v == "false" || v == "no" || v == "off")
+    return "0";
+  char *end = nullptr;
+  const double d = strtod(v.c_str(), &end);
+  if (!v.empty() && end && *end == '\0')
+  {
+    char number[32];
+    snprintf(number, sizeof(number), "%g", d);
+    return number;
+  }
+  return v;
 }
 
 static std::string Trim(const std::string &s)

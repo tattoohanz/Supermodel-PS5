@@ -195,15 +195,20 @@ static const PS5GameDefault s_gameDefaults[] =
   { "srally2", 120 },
 };
 
-static const PS5GameDefault *FindGameDefault(const Game &game)
+static const PS5GameDefault *FindGameDefault(const std::string &name, const std::string &parent)
 {
   for (const PS5GameDefault &d : s_gameDefaults)
-    if (game.name == d.set)
+    if (name == d.set)
       return &d;
   for (const PS5GameDefault &d : s_gameDefaults)
-    if (game.parent == d.set)
+    if (!parent.empty() && parent == d.set)
       return &d;
   return nullptr;
+}
+
+static const PS5GameDefault *FindGameDefault(const Game &game)
+{
+  return FindGameDefault(game.name, game.parent);
 }
 
 /******************************************************************************
@@ -517,10 +522,13 @@ static void FillMenuBase(std::vector<MenuGame> &games)
   Util::Config::Node fileConfig("Global");
   if (FileExists(s_configFilePath))
     Util::Config::FromINIFile(&fileConfig, s_configFilePath);
-  const Util::Config::Node defaults = PS5DefaultConfig();
   for (MenuGame &g : games)
   {
+    Util::Config::Node defaults = PS5DefaultConfig();
+    if (const PS5GameDefault *d = FindGameDefault(g.entry.set, g.parent))
+      defaults.Set("PowerPCFrequency", d->ppcMHz);
     const Util::Config::Node *section = fileConfig.TryGet(g.entry.set);
+    g.base.clear();
     for (const MenuSettingDef &def : MenuSettingDefs())
       for (const MenuSettingChoice &choice : def.choices)
         for (const auto &kv : choice.keys)
@@ -528,8 +536,9 @@ static void FillMenuBase(std::vector<MenuGame> &games)
           const Util::Config::Node *n = section ? section->TryGet(kv.first) : nullptr;
           if (!n)
             n = fileConfig.TryGet(kv.first);
-          const bool on = n ? n->ValueAs<bool>() : defaults[kv.first].ValueAsDefault<bool>(false);
-          g.base[kv.first] = on ? "1" : "0";
+          if (!n)
+            n = defaults.TryGet(kv.first);
+          g.base[kv.first] = n && !n->Empty() ? n->ValueAs<std::string>() : std::string();
         }
   }
 }
@@ -619,7 +628,9 @@ static int RunSession(const GameLoader &loader, const MenuGame &choice)
     unsigned mhz = s_runtime_config["PowerPCFrequency"].ValueAsDefault<unsigned>(0);
     const char *from;
     std::string builtIn;
-    if ((gameSection && gameSection->TryGet("PowerPCFrequency")) || fileConfig.TryGet("PowerPCFrequency"))
+    if (s_menuSettings.Get(game.name, "PowerPCFrequency"))
+      from = "menu settings";
+    else if ((gameSection && gameSection->TryGet("PowerPCFrequency")) || fileConfig.TryGet("PowerPCFrequency"))
       from = "Supermodel.ini";
     else if (gameDefault)
       from = (builtIn = std::string("built in for ") + gameDefault->set).c_str();

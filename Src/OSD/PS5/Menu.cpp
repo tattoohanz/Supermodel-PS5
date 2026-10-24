@@ -157,32 +157,37 @@ namespace
   };
 }
 
-// "1"/"true"/"yes"/"on" as "1", anything else as "0" (the settings are all
-// switches so far).
-static std::string Switch(const std::string &value)
+// What the game gets for a key: the menu's value, else the base one.
+static std::string Effective(const MenuGame &game, const CMenuSettings &settings, const char *key)
 {
-  std::string v;
-  for (char ch : value)
-    v += (char)tolower((unsigned char)ch);
-  return (v == "1" || v == "true" || v == "yes" || v == "on") ? "1" : "0";
+  if (const std::string *set = settings.Get(game.entry.set, key))
+    return MenuSettingNormal(*set);
+  auto it = game.base.find(key);
+  return it != game.base.end() ? MenuSettingNormal(it->second) : std::string();
 }
 
-// Which of a setting's choices the game has: by the first key of each.
+// Which of a setting's choices the game has: the first whose keys all
+// match, else the first whose first key does, else the first.
 static int ChoiceOf(const MenuSettingDef &def, const MenuGame &game, const CMenuSettings &settings)
 {
-  const char *key = def.choices[0].keys[0].first;
-  std::string value;
-  if (const std::string *set = settings.Get(game.entry.set, key))
-    value = *set;
-  else
+  for (size_t i = 0; i < def.choices.size(); i++)
   {
-    auto it = game.base.find(key);
-    if (it != game.base.end())
-      value = it->second;
+    bool all = true;
+    for (const auto &kv : def.choices[i].keys)
+      if (Effective(game, settings, kv.first) != MenuSettingNormal(kv.second))
+      {
+        all = false;
+        break;
+      }
+    if (all)
+      return (int)i;
   }
   for (size_t i = 0; i < def.choices.size(); i++)
-    if (Switch(def.choices[i].keys[0].second) == Switch(value))
+  {
+    const auto &first = def.choices[i].keys[0];
+    if (Effective(game, settings, first.first) == MenuSettingNormal(first.second))
       return (int)i;
+  }
   return 0;
 }
 

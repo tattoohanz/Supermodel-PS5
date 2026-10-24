@@ -330,38 +330,61 @@ namespace
 
   // The chosen game's settings: a box under the box art, lit while Triangle
   // has the D-pad on it.
+  // A setting's row: its name, its value, arrows on the one being changed.
+  void SettingRow(const Ctx &c, const MenuFrame &f, const MenuSettingRow &row, float x0, float x1, float y, float size,
+    bool active)
+  {
+    if (active)
+      c.dl->AddRectFilled(c.P(x0 - 14, y - size * 0.18f), c.P(x1 + 14, y + size * 1.32f), C(252, 252, 4, 40), c.S(6));
+    Text(c, f.medium, size, x0, y, C(207, 236, 244), row.label.c_str(), 1.5f);
+    const char *value = row.value.c_str();
+    const float vw = TextWidth(c, f.bold, size, value);
+    const float vx = x1 - 36 - vw;
+    Text(c, f.bold, size, vx, y, active ? C(252, 252, 4) : C(209, 234, 55), value, 1.5f);
+    if (active)
+    {
+      const ImU32 arrow = C(252, 252, 4);
+      const float cy = y + size * 0.66f, h = size * 0.34f;
+      c.dl->AddTriangleFilled(c.P(vx - 30, cy), c.P(vx - 14, cy - h), c.P(vx - 14, cy + h), arrow);
+      c.dl->AddTriangleFilled(c.P(x1 - 4, cy), c.P(x1 - 20, cy - h), c.P(x1 - 20, cy + h), arrow);
+    }
+  }
+
+  // The chosen game's settings: closed, a box under the box art with the
+  // first three; open (Triangle), a panel over the right side with all.
   void Settings(const Ctx &c, const MenuFrame &f)
   {
-    const float x0 = 1300, x1 = 1830, y0 = 786, y1 = 976;
-    const float pulse = 0.6f + 0.4f * (float)std::sin(f.time * 5.0);
-    c.dl->AddRectFilled(c.P(x0, y0), c.P(x1, y1), C(6, 16, 30, 200), c.S(8));
     if (f.settingsFocus)
-      c.dl->AddRect(c.P(x0 - 3, y0 - 3), c.P(x1 + 3, y1 + 3), C(252, 252, 4, (int)(170 * pulse)), c.S(10), 0, c.S(6));
-    c.dl->AddRect(c.P(x0, y0), c.P(x1, y1), f.settingsFocus ? C(252, 252, 4) : C(0, 204, 253, 170), c.S(8), 0, c.S(2.5f));
+      return;  // drawn over everything by SettingsPanel
+    const float x0 = 1300, x1 = 1830, y0 = 786, y1 = 976;
+    c.dl->AddRectFilled(c.P(x0, y0), c.P(x1, y1), C(6, 16, 30, 200), c.S(8));
+    c.dl->AddRect(c.P(x0, y0), c.P(x1, y1), C(0, 204, 253, 170), c.S(8), 0, c.S(2.5f));
     Text(c, f.bold, 24, x0 + 20, y0 + 10, C(0, 204, 253), "GAME SETTINGS", 1.5f);
-    if (!f.settingsFocus)
-    {
-      Button(c, x1 - 120, y0 + 26, '^');
-      Text(c, f.medium, 22, x1 - 96, y0 + 12, C(200, 220, 235), "Open", 1.0f);
-    }
+    Button(c, x1 - 120, y0 + 26, '^');
+    Text(c, f.medium, 22, x1 - 96, y0 + 12, C(200, 220, 235), "Open", 1.0f);
+    for (size_t i = 0; i < f.settings.size() && i < 3; i++)
+      SettingRow(c, f, f.settings[i], x0 + 24, x1 - 24, y0 + 52 + (float)i * 42, 26, false);
+  }
+
+  void SettingsPanel(const Ctx &c, const MenuFrame &f)
+  {
+    if (!f.settingsFocus || !f.games || f.selected < 0 || f.selected >= (int)f.games->size())
+      return;
+    const float x0 = kPanelX0 + 18, x1 = kPanelX1 - 18, y0 = kPanelY0 + 18, y1 = kPanelY1 - 18;
+    const float pulse = 0.6f + 0.4f * (float)std::sin(f.time * 5.0);
+    c.dl->AddRectFilled(c.P(x0, y0), c.P(x1, y1), C(6, 14, 28, 255), c.S(10));
+    c.dl->AddRect(c.P(x0 - 3, y0 - 3), c.P(x1 + 3, y1 + 3), C(252, 252, 4, (int)(150 * pulse)), c.S(12), 0, c.S(7));
+    c.dl->AddRect(c.P(x0, y0), c.P(x1, y1), C(252, 252, 4), c.S(10), 0, c.S(3));
+    Text(c, f.bold, 30, x0 + 40, y0 + 24, C(0, 204, 253), "GAME SETTINGS", 1.5f);
+    const std::string &title = (*f.games)[f.selected].title;
+    const float size = FitSize(c, f.bold, 40, x1 - x0 - 80, title.c_str());
+    Text(c, f.bold, size, x0 + 40, y0 + 66, C(209, 234, 55), title.c_str(), 2.0f);
+    c.dl->AddLine(c.P(x0 + 30, y0 + 130), c.P(x1 - 30, y0 + 130), C(0, 204, 253, 120), c.S(2));
+    const float rowH = std::min(78.0f, (y1 - y0 - 230) / std::max(1.0f, (float)f.settings.size()));
     for (size_t i = 0; i < f.settings.size(); i++)
-    {
-      const float y = y0 + 52 + (float)i * 44;
-      const bool active = f.settingsFocus && (int)i == f.settingsRow;
-      if (active)
-        c.dl->AddRectFilled(c.P(x0 + 10, y - 4), c.P(x1 - 10, y + 38), C(252, 252, 4, 40), c.S(6));
-      Text(c, f.medium, 27, x0 + 24, y, C(207, 236, 244), f.settings[i].label.c_str(), 1.5f);
-      const char *value = f.settings[i].value.c_str();
-      const float vw = TextWidth(c, f.bold, 27, value);
-      const float vx = x1 - 60 - vw;
-      Text(c, f.bold, 27, vx, y, active ? C(252, 252, 4) : C(209, 234, 55), value, 1.5f);
-      if (active)
-      {
-        const ImU32 arrow = C(252, 252, 4);
-        c.dl->AddTriangleFilled(c.P(vx - 26, y + 18), c.P(vx - 14, y + 9), c.P(vx - 14, y + 27), arrow);
-        c.dl->AddTriangleFilled(c.P(x1 - 34, y + 18), c.P(x1 - 46, y + 9), c.P(x1 - 46, y + 27), arrow);
-      }
-    }
+      SettingRow(c, f, f.settings[i], x0 + 70, x1 - 70, y0 + 156 + (float)i * rowH, 34, (int)i == f.settingsRow);
+    const char *note = "Saved at once, for this game; used from its next start.";
+    Text(c, f.medium, 24, (x0 + x1) * 0.5f - TextWidth(c, f.medium, 24, note) * 0.5f, y1 - 52, C(170, 200, 220), note, 1.0f);
   }
 
   void Footer(const Ctx &c, const MenuFrame &f)
@@ -402,6 +425,7 @@ void MenuDraw(ImDrawList *draw, const MenuFrame &frame, ImVec2 origin, float sca
   Background(c);
   Header(c, frame);
   Panel(c, frame);
+  SettingsPanel(c, frame);
   if (frame.games && !frame.games->empty())
     List(c, frame);
   Footer(c, frame);

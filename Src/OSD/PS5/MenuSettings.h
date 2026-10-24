@@ -49,6 +49,10 @@ struct MenuSettingDef
 
 const std::vector<MenuSettingDef> &MenuSettingDefs();
 
+// A value as compared: "true"/"on"/"yes" as "1", the false ones as "0",
+// numbers in one form ("120", "120.0" -> "120").
+std::string MenuSettingNormal(const std::string &value);
+
 class CMenuSettings
 {
 public:
