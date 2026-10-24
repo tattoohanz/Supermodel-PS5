@@ -54,6 +54,7 @@
 #include "Display.h"
 #include "PS5App.h"
 #include "PS5InputSystem.h"
+#include "Diag.h"
 
 #include <cstdarg>
 #include <cstdio>
@@ -67,6 +68,17 @@
 #include <unistd.h>
 
 unsigned long long PS5AudioSamplesGenerated();
+
+/******************************************************************************
+ Diagnostics (Diag.h): the picture's stages dumped 15, 30 and 45 s in
+******************************************************************************/
+
+static const char *s_diagTag = nullptr;
+
+const char *PS5DiagDumpTag()
+{
+  return s_diagTag;
+}
 
 /******************************************************************************
  Configuration
@@ -413,6 +425,10 @@ static int RunSession()
     PS5DisplayRefreshMilliHz() / 1000.0, vsync ? "on" : "off");
 
   uint64_t nextTime = NowNs() + frameNs;
+  const uint64_t sessionStart = NowNs();
+  static const char *const diagTags[] = { "15s", "30s", "45s" };
+  static const unsigned diagSeconds[] = { 15, 30, 45 };
+  unsigned diagNext = 0;
   uint64_t statStart = NowNs();
   uint64_t runNs = 0, runMaxNs = 0;
   unsigned frames = 0;
@@ -423,7 +439,13 @@ static int RunSession()
     Inputs->Poll(&game, xOffset, yOffset, xRes, yRes);
 
     const uint64_t t0 = NowNs();
+    if (diagNext < 3 && NowNs() - sessionStart >= diagSeconds[diagNext] * 1000000000ull)
+    {
+      s_diagTag = diagTags[diagNext++];
+      InfoLog("diag: %s: dumping the picture's stages to %s/Screenshots/diag-%s-*.png.", s_diagTag, PS5_APP_DIR, s_diagTag);
+    }
     Model3->RunFrame();
+    s_diagTag = nullptr;
     const uint64_t dt = NowNs() - t0;
     runNs += dt;
     if (dt > runMaxNs)

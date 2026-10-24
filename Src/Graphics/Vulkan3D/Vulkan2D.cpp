@@ -29,6 +29,9 @@
 #include "Shaders/composite_vert.spv.h"
 #include "Shaders/composite_frag.spv.h"
 #include "Shaders/post_frag.spv.h"
+#ifdef SUPERMODEL_PS5
+#include "Diag.h"
+#endif
 
 #include <cstring>
 
@@ -877,6 +880,25 @@ void CVulkan2D::EndFrame(void)
 	 */
 	RefreshPostSettings();
 
+#ifdef SUPERMODEL_PS5
+	const char* diagTag = PS5DiagDumpTag();
+	if (diagTag)
+	{
+		int px = 0, py = 0, pw = 0, ph = 0;
+		PictureRect(px, py, pw, ph);
+		InfoLog("diag: %s 2D: bottom draw %d uploaded %d, top draw %d uploaded %d, scene view %s, picture (%d,%d %dx%d), "
+			"layer area (%u,%u %ux%u) correction %u, post %d.", diagTag, m_drawBottom ? 1 : 0, m_uploaded[0] ? 1 : 0,
+			m_drawTop ? 1 : 0, m_uploaded[1] ? 1 : 0, m_sceneView ? "set" : "none", px, py, pw, ph,
+			m_xOff, m_yOff, m_xRes, m_yRes, m_correction, m_postReady ? 1 : 0);
+		for (int i = 0; i < 2; i++)
+		{
+			if (m_uploaded[i])
+				m_context.RecordImageDump(cmd, m_layers[i].image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 496, 384, false,
+					Util::Format() << "/data/supermodel/Screenshots/diag-" << diagTag << (i ? "-top.png" : "-bottom.png"));
+		}
+	}
+#endif
+
 	if (m_postReady && EnsureComposite())
 	{
 		// Compose into the offscreen image first, then let the filters work on the finished frame on
@@ -902,6 +924,17 @@ void CVulkan2D::EndFrame(void)
 
 	// Last of all: the in-game settings panel, over everything, including the backdrop.
 	DrawOverlayPass(cmd);
+
+#ifdef SUPERMODEL_PS5
+	if (diagTag)
+	{
+		const VkFormat swapFormat = m_context.SwapFormat();
+		m_context.RecordImageDump(cmd, m_context.SwapImage(), VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+			m_context.Extent().width, m_context.Extent().height,
+			swapFormat == VK_FORMAT_B8G8R8A8_UNORM || swapFormat == VK_FORMAT_B8G8R8A8_SRGB,
+			Util::Format() << "/data/supermodel/Screenshots/diag-" << diagTag << "-frame.png");
+	}
+#endif
 
 	// Capture the finished frame if one was requested. Done here, while the image is still a colour
 	// attachment, so RecordScreenshotCopy() can put it back the way the transition below expects.

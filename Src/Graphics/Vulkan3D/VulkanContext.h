@@ -115,6 +115,16 @@ public:
 	 * RecordScreenshotCopy() (before the image goes to PRESENT_SRC).
 	 */
 	void RequestScreenshot(const std::string& path);
+#ifdef SUPERMODEL_PS5
+	/*
+	 * Diagnostic (PS5, OSD/PS5/Diag.h): copies a colour image - RGBA8, or BGRA8 when bgra is set - in
+	 * `layout` into a host buffer within this frame, leaving it in that layout. When the frame's fence
+	 * has passed (BeginFrame) a summary of the pixels is logged and they are written to `path` as a
+	 * PNG on a worker thread.
+	 */
+	void RecordImageDump(VkCommandBuffer cmd, VkImage image, VkImageLayout layout, uint32_t width, uint32_t height,
+		bool bgra, const std::string& path);
+#endif
 	bool ScreenshotsAvailable() const { return m_swapTransferSrc; }
 	// Records the copy and the required layout transitions. Leaves the image back in
 	// COLOR_ATTACHMENT_OPTIMAL so the caller's transition to PRESENT_SRC still applies.
@@ -194,6 +204,19 @@ private:
 	// Compression and file writing run here, off the main loop, so a capture cannot starve the audio.
 	std::thread m_screenshotThread;
 	std::atomic<bool> m_screenshotBusy{ false };
+#ifdef SUPERMODEL_PS5
+	struct ImageDump
+	{
+		AllocatedBuffer buffer;
+		uint32_t width = 0;
+		uint32_t height = 0;
+		bool bgra = false;
+		std::string path;
+		uint32_t slot = 0;
+	};
+	std::vector<ImageDump> m_imageDumps;
+	void CompleteImageDumps();
+#endif
 };
 
 } // Vulkan3D

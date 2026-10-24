@@ -26,6 +26,10 @@
 #include "Shaders/real3d_frag.spv.h"
 #include "Shaders/fog_vert.spv.h"
 #include "Shaders/fog_frag.spv.h"
+#ifdef SUPERMODEL_PS5
+#include "Diag.h"
+#include "Util/Format.h"
+#endif
 
 #include <cstring>
 #include <cmath>
@@ -818,6 +822,19 @@ void CVulkan3D::EndFrame(void)
 		}
 		m_output.SetSceneColor(m_color.view);
 	}
+#ifdef SUPERMODEL_PS5
+	if (const char* tag = PS5DiagDumpTag())
+	{
+		const bool msaa = m_samples > VK_SAMPLE_COUNT_1_BIT;
+		const AllocatedImage& scene = msaa ? m_colorResolve : m_color;
+		const VkImageLayout layout = msaa ? m_resolveLayout : m_colorLayout;
+		InfoLog("diag: %s 3D: target %ux%u, layout %d, %s.", tag, scene.width, scene.height, (int)layout,
+			msaa ? "resolved" : "single-sampled");
+		if (layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+			m_context.RecordImageDump(m_context.Cmd(), scene.image, layout, scene.width, scene.height, false,
+				Util::Format() << "/data/supermodel/Screenshots/diag-" << tag << "-3d.png");
+	}
+#endif
 }
 
 void CVulkan3D::CollectTextures()

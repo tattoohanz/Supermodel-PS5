@@ -949,6 +949,9 @@ bool CVulkanContext::BeginFrame()
 	// capture stays pending and is picked up when the slot next comes round.
 	if (m_screenshotPendingSlot == (int32_t)m_frame && !m_screenshotBusy)
 		WriteScreenshot();
+#ifdef SUPERMODEL_PS5
+	CompleteImageDumps();
+#endif
 
 	int w = 0, h = 0;
 	SDL_GetWindowSize(m_window, &w, &h);
@@ -991,6 +994,91 @@ void CVulkanContext::RequestScreenshot(const std::string& path)
 	m_screenshotPath = path;
 	m_screenshotRequests++;
 }
+
+#ifdef SUPERMODEL_PS5
+void CVulkanContext::RecordImageDump(VkCommandBuffer cmd, VkImage image, VkImageLayout layout, uint32_t width,
+	uint32_t height, bool bgra, const std::string& path)
+{
+	if (image == VK_NULL_HANDLE || width == 0 || height == 0)
+	{
+		InfoLog("diag: %s: no image to dump.", path.c_str());
+		return;
+	}
+	ImageDump dump;
+	if (!m_memory.CreateBuffer((VkDeviceSize)width * height * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, dump.buffer))
+	{
+		ErrorLog("diag: %s: no staging buffer.", path.c_str());
+		return;
+	}
+	CmdTransition(cmd, image, layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+	VkBufferImageCopy region = {};
+	region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	region.imageSubresource.layerCount = 1;
+	region.imageExtent = { width, height, 1 };
+	vkCmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dump.buffer.buffer, 1, &region);
+	CmdTransition(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, layout, VK_IMAGE_ASPECT_COLOR_BIT);
+	dump.width = width;
+	dump.height = height;
+	dump.bgra = bgra;
+	dump.path = path;
+	dump.slot = m_frame;
+	m_imageDumps.push_back(std::move(dump));
+}
+
+void CVulkanContext::CompleteImageDumps()
+{
+	for (size_t i = 0; i < m_imageDumps.size();)
+	{
+		ImageDump& dump = m_imageDumps[i];
+		if (dump.slot != m_frame)
+		{
+			i++;
+			continue;
+		}
+		const size_t pixels = (size_t)dump.width * dump.height;
+		std::vector<uint8_t> rgb(pixels * 3);
+		const uint8_t* src = static_cast<const uint8_t*>(dump.buffer.mapped);
+		uint64_t sum[4] = { 0, 0, 0, 0 };
+		uint64_t lit = 0;
+		unsigned alphaMin = 255, alphaMax = 0;
+		for (size_t p = 0; src && p < pixels; p++)
+		{
+			const uint8_t* px = src + p * 4;
+			const uint8_t r = dump.bgra ? px[2] : px[0], g = px[1], b = dump.bgra ? px[0] : px[2], a = px[3];
+			rgb[p * 3 + 0] = r;
+			rgb[p * 3 + 1] = g;
+			rgb[p * 3 + 2] = b;
+			sum[0] += r; sum[1] += g; sum[2] += b; sum[3] += a;
+			if (r > 8 || g > 8 || b > 8)
+				lit++;
+			if (a < alphaMin) alphaMin = a;
+			if (a > alphaMax) alphaMax = a;
+		}
+		uint8_t centre[4] = { 0, 0, 0, 0 };
+		if (src)
+		{
+			const uint8_t* px = src + ((size_t)(dump.height / 2) * dump.width + dump.width / 2) * 4;
+			centre[0] = dump.bgra ? px[2] : px[0];
+			centre[1] = px[1];
+			centre[2] = dump.bgra ? px[0] : px[2];
+			centre[3] = px[3];
+		}
+		const double n = pixels ? (double)pixels : 1.0;
+		InfoLog("diag: %s %ux%u: lit %.1f%%, mean rgba %.0f %.0f %.0f %.0f, alpha %u..%u, centre rgba %u %u %u %u",
+			dump.path.c_str(), dump.width, dump.height, 100.0 * lit / n, sum[0] / n, sum[1] / n, sum[2] / n, sum[3] / n,
+			alphaMin, alphaMax, centre[0], centre[1], centre[2], centre[3]);
+		m_memory.DestroyBuffer(dump.buffer);
+		const std::string path = dump.path;
+		const int32_t w = (int32_t)dump.width, h = (int32_t)dump.height;
+		std::thread([path, w, h, pixels = std::move(rgb)]() {
+			if (Util::PNG::WriteRGB(path, pixels.data(), w, h))
+				ErrorLog("diag: failed to write %s.", path.c_str());
+		}).detach();
+		m_imageDumps.erase(m_imageDumps.begin() + i);
+	}
+}
+#endif
 
 void CVulkanContext::RecordScreenshotCopy(VkCommandBuffer cmd)
 {
