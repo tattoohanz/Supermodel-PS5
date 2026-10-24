@@ -619,19 +619,26 @@ static int RunSession(const GameLoader &loader, const MenuGame &choice)
     s_runtime_config = globalConfig;
   InfoLog("Game: %s (%s), stepping %s.", game.title.c_str(), game.name.c_str(), game.stepping.c_str());
   // The menu's settings for the game (MenuSettings.ini), over everything.
-  if (const auto *menu = s_menuSettings.Section(game.name))
+  // The menu keeps them under the zip's name (choice.entry.set), which is not
+  // always the set the loader finds in it (harley.zip can hold harleya).
+  const std::string &menuSet = choice.entry.set;
+  if (menuSet != game.name)
+    InfoLog("Config: '%s.zip' holds the set %s; the menu settings are those of %s.", menuSet.c_str(), game.name.c_str(), menuSet.c_str());
+  if (const auto *menu = s_menuSettings.Section(menuSet))
     for (const auto &kv : *menu)
     {
       s_runtime_config.Set<std::string>(kv.first, kv.second);
       InfoLog("Config: %s = %s (menu settings).", kv.first.c_str(), kv.second.c_str());
     }
+  else
+    InfoLog("Config: no menu settings for %s.", menuSet.c_str());
   InfoLog("Video: picture %s.", s_runtime_config["WideScreen"].ValueAs<bool>() ? "16:9 (WideScreen, WideBackground as set)" : "4:3");
   ServiceTestForGame(game, fileConfig, gameSection);
   {
     unsigned mhz = s_runtime_config["PowerPCFrequency"].ValueAsDefault<unsigned>(0);
     const char *from;
     std::string builtIn;
-    if (s_menuSettings.Get(game.name, "PowerPCFrequency"))
+    if (s_menuSettings.Get(menuSet, "PowerPCFrequency"))
       from = "menu settings";
     else if ((gameSection && gameSection->TryGet("PowerPCFrequency")) || fileConfig.TryGet("PowerPCFrequency"))
       from = "Supermodel.ini";
