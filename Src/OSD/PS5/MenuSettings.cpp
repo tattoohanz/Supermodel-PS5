@@ -39,6 +39,20 @@ const std::vector<MenuSettingDef> &MenuSettingDefs()
       { "16:9", { { "WideScreen", "1" }, { "WideBackground", "1" }, { "Stretch", "0" } } },
       { "Stretched", { { "WideScreen", "0" }, { "WideBackground", "0" }, { "Stretch", "1" } } },
     } },
+    // The 3D scene's resolution: the display's (2160 rows at 4K), or the
+    // Model 3's 496x384 times 1 to 8, stretched over the display; above 2160
+    // rows that is supersampling.
+    { "Resolution", {
+      { "Display (4K)", { { "RenderScale", "0" } } },
+      { "Native 496x384", { { "RenderScale", "1" } } },
+      { "2x 992x768", { { "RenderScale", "2" } } },
+      { "3x 1488x1152", { { "RenderScale", "3" } } },
+      { "4x 1984x1536", { { "RenderScale", "4" } } },
+      { "5x 2480x1920", { { "RenderScale", "5" } } },
+      { "6x 2976x2304", { { "RenderScale", "6" } } },
+      { "7x 3472x2688", { { "RenderScale", "7" } } },
+      { "8x 3968x3072", { { "RenderScale", "8" } } },
+    } },
     // The emulated PowerPC's clock: below the real one a game needs less of
     // the console (Sega Rally 2 is at 120 MHz by default for 60 FPS).
     { "PowerPC", {
@@ -69,6 +83,7 @@ const std::vector<MenuSettingDef> &MenuSettingDefs()
       { "On", { { "BezelMode", "1" } } },
       { "Off", { { "BezelMode", "0" } } },
     } },
+    // Light bleeding around bright parts of the picture, as on a CRT's glass.
     { "Glow", {
       { "Off", { { "PostGlow", "0" } } },
       { "Soft", { { "PostGlow", "30" } } },

@@ -20,6 +20,8 @@
  ** with Supermodel.  If not, see <http://www.gnu.org/licenses/>.
  **/
 #include "Vulkan3D.h"
+
+#include <algorithm>
 #include "Vulkan2D.h"
 #include "OSD/Logger.h"
 #include "Shaders/real3d_vert.spv.h"
@@ -187,12 +189,29 @@ void CVulkan3D::UploadTextures(unsigned level, unsigned x, unsigned y, unsigned 
 
 Result CVulkan3D::Init(unsigned xOffset, unsigned yOffset, unsigned xRes, unsigned yRes, unsigned totalXRes, unsigned totalYRes, unsigned)
 {
-	m_xOff = xOffset;
-	m_yOff = yOffset;
-	m_xRes = xRes;
-	m_yRes = yRes;
-	m_totalX = totalXRes;
-	m_totalY = totalYRes;
+	/*
+	 * Internal resolution. RenderScale k (1..8) renders the Model 3's 496x384 picture at k times
+	 * that, 384*k rows high, by scaling the whole 3D target - the display's extent with the picture
+	 * placed in it as usual - by 384*k / yRes; the 2D compositor already stretches the target over
+	 * the display, so a smaller one is magnified (k = 1 is the native look, blurred by the bilinear
+	 * filter) and a larger one is reduced (supersampling). 0, or no such key (the desktop builds),
+	 * leaves the target the display's size.
+	 */
+	{
+		const Util::Config::Node* node = m_config.TryGet("RenderScale");
+		const int k = node ? node->ValueAsDefault<int>(0) : 0;
+		m_renderScale = (k >= 1 && k <= 8 && yRes > 0) ? (384.0f * (float)k) / (float)yRes : 1.0f;
+		if (k >= 1 && k <= 8)
+			InfoLog("Vulkan3D: render scale %dx - the picture is drawn at %ux%u (%.3f of the display's size).",
+				k, (unsigned)(496 * k), (unsigned)(384 * k), m_renderScale);
+	}
+	auto scaled = [this](unsigned v) { return (unsigned)((float)v * m_renderScale + 0.5f); };
+	m_xOff = scaled(xOffset);
+	m_yOff = scaled(yOffset);
+	m_xRes = scaled(xRes);
+	m_yRes = scaled(yRes);
+	m_totalX = std::max(scaled(totalXRes), m_xOff + m_xRes);
+	m_totalY = std::max(scaled(totalYRes), m_yOff + m_yRes);
 	m_wide = m_config["WideScreen"].ValueAs<bool>();
 	m_scene.SetViewport(xOffset, yOffset, xRes, yRes, totalXRes, totalYRes, m_wide);
 	m_targetGeneration = ~0ull;
@@ -743,6 +762,8 @@ bool CVulkan3D::EnsureTargets()
 	VkExtent2D extent = m_context.Extent();
 	if (extent.width == 0 || extent.height == 0)
 		return false;
+	if (m_renderScale != 1.0f)
+		extent = { m_totalX, m_totalY };  // the display's, scaled in Init
 	if (m_color.image && m_color.width == extent.width && m_color.height == extent.height && m_targetGeneration == m_context.SwapchainGeneration())
 		return true;
 	if (m_context.Device())

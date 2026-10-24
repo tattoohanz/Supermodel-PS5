@@ -123,6 +123,9 @@ static Util::Config::Node PS5DefaultConfig()
   // console).
   config.Set("AudioLatency", 10);
   config.Set("Vulkan3DEngine", true);
+  // The 3D scene's resolution (Vulkan3D.cpp): 0 the display's, 1-8 the
+  // Model 3's 496x384 times that. The menu's "Resolution".
+  config.Set("RenderScale", 0, "Video", 0, 8);
   config.Set("FullScreen", true);
   config.Set("HighPriority", false);
   config.Set<std::string>("Outputs", "none");

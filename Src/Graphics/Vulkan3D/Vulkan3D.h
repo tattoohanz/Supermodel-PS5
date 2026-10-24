@@ -81,6 +81,10 @@ private:
 	CVulkanTextureCache m_textures;
 
 	unsigned m_xOff = 0, m_yOff = 0, m_xRes = 496, m_yRes = 384, m_totalX = 496, m_totalY = 384;
+	// RenderScale (0 = the display's size, else the 4:3 picture 384 x k rows high): the 3D target
+	// is the display's extent times this, and the geometry above is already scaled by it. The
+	// compositor stretches the target over the display either way.
+	float m_renderScale = 1.0f;
 	bool m_wide = false;
 	bool m_noWhiteFlash = false;
 	std::atomic<bool> m_sunClamp;

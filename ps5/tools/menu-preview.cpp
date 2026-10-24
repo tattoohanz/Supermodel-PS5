@@ -247,11 +247,11 @@ int main(int argc, char **argv)
   f.bold = bold;
   f.medium = medium;
   f.headerLogo = Load(dir + "/Assets/Menu/header/logo.png");
-  for (const auto &row : std::vector<MenuSettingRow>{ { "Picture", "16:9" }, { "PowerPC", "120 MHz" },
+  for (const auto &row : std::vector<MenuSettingRow>{ { "Picture", "16:9" }, { "Resolution", "8x 3968x3072" }, { "PowerPC", "120 MHz" },
          { "CRT filter", "CRT arcade" }, { "Anti-aliasing", "FXAA" }, { "Bezel", "On" }, { "Glow", "Off" },
          { "Music", "100%" }, { "Sound effects", "100%" } })
     f.settings.push_back(row);
-  f.settingsRow = 2;
+  f.settingsRow = 1;
   f.settingsFocus = getenv("PREVIEW_SETTINGS") != nullptr;
   if (!games.empty())
   {
