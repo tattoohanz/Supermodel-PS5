@@ -13,7 +13,8 @@
 /*
  * Diag.h
  *
- * PS5 diagnostics. A few times in a session (Main.cpp) the renderer dumps
+ * PS5 diagnostics. When /data/supermodel/diag-dump.txt exists, 15, 30 and
+ * 45 s into a session (Main.cpp) the renderer dumps
  * each stage of the picture - the two tile layers, the 3D scene, the frame
  * that is presented - to /data/supermodel/Screenshots/ as PNGs, and logs a
  * one-line summary of each ("diag: ..."), so a picture missing on the TV can

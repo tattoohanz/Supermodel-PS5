@@ -68,6 +68,7 @@
 #include <unistd.h>
 
 unsigned long long PS5AudioSamplesGenerated();
+extern "C" int sceSystemServiceHideSplashScreen(void);
 
 /******************************************************************************
  Diagnostics (Diag.h): the picture's stages dumped 15, 30 and 45 s in
@@ -224,8 +225,19 @@ bool BeginFrameVideo()
 
 void EndFrameVideo()
 {
-  if (s_vkContext)
-    s_vkContext->EndFrame();
+  if (!s_vkContext)
+    return;
+  s_vkContext->EndFrame();
+
+  // The system keeps showing the title's launch picture over VideoOut until
+  // the app takes it down (as XPSemu Chihiro does after its first frame).
+  static bool s_splashHidden = false;
+  if (!s_splashHidden)
+  {
+    s_splashHidden = true;
+    const int rc = sceSystemServiceHideSplashScreen();
+    InfoLog("Video: first frame presented; splash screen hidden (0x%x).", (unsigned)rc);
+  }
 }
 
 /******************************************************************************
@@ -428,7 +440,8 @@ static int RunSession()
   const uint64_t sessionStart = NowNs();
   static const char *const diagTags[] = { "15s", "30s", "45s" };
   static const unsigned diagSeconds[] = { 15, 30, 45 };
-  unsigned diagNext = 0;
+  // Opt-in (the PNGs cost a few long frames): /data/supermodel/diag-dump.txt.
+  unsigned diagNext = FileExists(PS5_APP_DIR "/diag-dump.txt") ? 0 : 3;
   uint64_t statStart = NowNs();
   uint64_t runNs = 0, runMaxNs = 0;
   unsigned frames = 0;
