@@ -138,6 +138,33 @@ static Util::Config::Node PS5DefaultConfig()
   return config;
 }
 
+// Per game, over the defaults and under Supermodel.ini (its global section
+// and the game's own still win). By ROM set; a clone takes its parent's.
+struct PS5GameDefault
+{
+  const char *set;
+  unsigned ppcMHz;  // PowerPCFrequency; 0 = the stepping's own (66/100/166)
+};
+
+static const PS5GameDefault s_gameDefaults[] =
+{
+  // At the real 166 MHz the PowerPC interpreter needs 19-20 ms a frame on the
+  // console (51-55 FPS); at 120 MHz 13-15 ms, 59.94 FPS, and the game showed
+  // no slowdown, also at the start of a race.
+  { "srally2", 120 },
+};
+
+static const PS5GameDefault *FindGameDefault(const Game &game)
+{
+  for (const PS5GameDefault &d : s_gameDefaults)
+    if (game.name == d.set)
+      return &d;
+  for (const PS5GameDefault &d : s_gameDefaults)
+    if (game.parent == d.set)
+      return &d;
+  return nullptr;
+}
+
 /******************************************************************************
  Log
 ******************************************************************************/
@@ -403,8 +430,6 @@ static int RunSession()
   }
   else
     InfoLog("Config: no '%s'; using the defaults.", s_configFilePath.c_str());
-  Util::Config::Node globalConfig("Global");
-  Util::Config::MergeINISections(&globalConfig, PS5DefaultConfig(), fileConfig);
 
   // The game.
   std::string rom = ReadAutoboot();
@@ -427,11 +452,36 @@ static int RunSession()
       return 1;
     }
   }
-  if (const Util::Config::Node *section = fileConfig.TryGet(game.name))
-    Util::Config::MergeINISections(&s_runtime_config, globalConfig, *section);
+  Util::Config::Node defaults = PS5DefaultConfig();
+  const PS5GameDefault *gameDefault = FindGameDefault(game);
+  if (gameDefault)
+    defaults.Set("PowerPCFrequency", gameDefault->ppcMHz);
+  Util::Config::Node globalConfig("Global");
+  Util::Config::MergeINISections(&globalConfig, defaults, fileConfig);
+  const Util::Config::Node *gameSection = fileConfig.TryGet(game.name);
+  if (gameSection)
+    Util::Config::MergeINISections(&s_runtime_config, globalConfig, *gameSection);
   else
     s_runtime_config = globalConfig;
   InfoLog("Game: %s (%s), stepping %s.", game.title.c_str(), game.name.c_str(), game.stepping.c_str());
+  {
+    unsigned mhz = s_runtime_config["PowerPCFrequency"].ValueAsDefault<unsigned>(0);
+    const char *from;
+    std::string builtIn;
+    if ((gameSection && gameSection->TryGet("PowerPCFrequency")) || fileConfig.TryGet("PowerPCFrequency"))
+      from = "Supermodel.ini";
+    else if (gameDefault)
+      from = (builtIn = std::string("built in for ") + gameDefault->set).c_str();
+    else
+      from = "the default";
+    if (mhz == 0)
+    {
+      mhz = game.stepping == "1.0" ? 66 : game.stepping == "1.5" ? 100 : 166;  // as Model3.cpp
+      InfoLog("Config: PowerPC at %u MHz (stepping %s's own; %s).", mhz, game.stepping.c_str(), from);
+    }
+    else
+      InfoLog("Config: PowerPC at %u MHz (%s).", mhz, from);
+  }
 
   // The display.
   const bool vsync = s_runtime_config["VSync"].ValueAsDefault<bool>(true);
