@@ -14,7 +14,7 @@
  * FileSystemPath.cpp
  *
  * PS5: everything the emulator writes lives under /data/supermodel/; the
- * title's own files (Games.xml, the assets) are read from /app0/.
+ * title's own files (Games.xml, the assets) from its folder (PS5AppTitleDir).
  */
 
 #include "OSD/FileSystemPath.h"
@@ -50,7 +50,7 @@ namespace FileSystemPath
     case NVRAM:       name = "NVRAM"; break;
     case Saves:       name = "Saves"; break;
     case Screenshots: name = "Screenshots"; break;
-    case Assets:      return "/app0/Assets/";
+    case Assets:      return std::string(PS5AppTitleDir()) + "/Assets/";
     }
     std::string path = std::string(PS5_APP_DIR) + "/" + name;
     MakeDir(path);

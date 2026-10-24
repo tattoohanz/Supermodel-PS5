@@ -72,7 +72,8 @@ unsigned long long PS5AudioSamplesGenerated();
  Configuration
 ******************************************************************************/
 
-static const std::string s_gameXMLFilePath = "/app0/Config/Games.xml";
+// In the title's folder, known once PS5AppInit has run (RunSession sets it).
+static std::string s_gameXMLFilePath;
 static const std::string s_configFilePath = PS5_APP_DIR "/Config/Supermodel.ini";
 static const char s_autobootPath[] = PS5_APP_DIR "/autoboot.txt";
 static const char s_defaultGame[] = "srally2";
@@ -291,6 +292,8 @@ static void CalcScreenGeometry(unsigned totalX, unsigned totalY, bool keepAspect
 
 static int RunSession()
 {
+  s_gameXMLFilePath = std::string(PS5AppTitleDir()) + "/Config/Games.xml";
+
   // Configuration: defaults, Supermodel.ini's global section, the game's section.
   Util::Config::Node fileConfig("Global");
   if (FileExists(s_configFilePath))

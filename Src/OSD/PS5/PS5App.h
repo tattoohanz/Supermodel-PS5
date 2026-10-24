@@ -36,4 +36,9 @@ void PS5Notify(const char *message);
 // Seconds since PS5AppInit, for log timestamps.
 double PS5AppSeconds();
 
+// The title's own folder, for Games.xml and the assets: /app0 while the app
+// is still in its sandbox, /data/homebrew/PPSA97374 once the jailbreak has
+// moved its root (where /app0 no longer exists). Set by PS5AppInit.
+const char *PS5AppTitleDir();
+
 #endif  // INCLUDED_PS5APP_H

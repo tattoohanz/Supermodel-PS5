@@ -52,6 +52,12 @@ static const int HEN_MAX_POLLS = 600;
 static const int HEN_POST_CONSUME_POLLS = 450;
 
 static struct timespec s_start;
+static const char *s_titleDir = "/data/homebrew/" PS5_APP_TITLE_ID;
+
+const char *PS5AppTitleDir()
+{
+  return s_titleDir;
+}
 
 double PS5AppSeconds()
 {
@@ -128,13 +134,18 @@ static void ReportUnresolvedImports()
     "/data/homebrew/" PS5_APP_TITLE_ID "/imports.txt",
   };
   FILE *f = nullptr;
+  const char *path = nullptr;
   for (size_t i = 0; !f && i < sizeof(paths) / sizeof(paths[0]); i++)
-    f = fopen(paths[i], "r");
+  {
+    path = paths[i];
+    f = fopen(path, "r");
+  }
   if (!f)
   {
     fprintf(stderr, "ps5: can't read imports.txt, errno %d\n", errno);
     return;
   }
+  fprintf(stderr, "ps5: imports from %s\n", path);
   char name[128], list[400] = "";
   unsigned long offset;
   int checked = 0, missing = 0;
@@ -198,6 +209,19 @@ bool PS5AppInit()
     PS5Notify(toast);
     return false;
   }
+  // After the jailbreak the root is the console's own, without /app0.
+  static const char *const titleDirs[] = { "/app0", "/data/homebrew/" PS5_APP_TITLE_ID };
+  for (const char *dir : titleDirs)
+  {
+    char probe[128];
+    snprintf(probe, sizeof(probe), "%s/Config/Games.xml", dir);
+    if (access(probe, R_OK) == 0)
+    {
+      s_titleDir = dir;
+      break;
+    }
+  }
+  fprintf(stderr, "ps5: title folder %s\n", s_titleDir);
   ReportUnresolvedImports();
   return true;
 }
