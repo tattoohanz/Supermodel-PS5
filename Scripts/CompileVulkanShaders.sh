@@ -18,10 +18,11 @@ DIR=Src/Graphics/Vulkan3D/Shaders
 build() {
   src="$1"
   name="$2"
+  shift 2
   # Target SPIR-V 1.5, which is what --target-env vulkan1.2 produces. Not vulkan1.3: that emits
   # SPIR-V 1.6, which needs Vulkan 1.3 or VK_KHR_maintenance4 to load, and the backend deliberately
   # also runs on 1.2 with the dynamic rendering and synchronization2 extensions enabled.
-  "$GLSLANG" -V --target-env vulkan1.2 -o "$DIR/$name.spv" "$DIR/$src"
+  "$GLSLANG" -V --target-env vulkan1.2 "$@" -o "$DIR/$name.spv" "$DIR/$src"
   python3 - "$DIR/$name.spv" "$DIR/$name.spv.h" "$name" <<'PY'
 import pathlib, sys
 spv, header, name = sys.argv[1:]
@@ -40,4 +41,9 @@ build real3d.frag real3d_frag
 build composite.vert composite_vert
 build composite.frag composite_frag
 build texdecode.comp texdecode_comp
+build fog.vert fog_vert
+build fog.frag fog_frag
+build post.frag post_frag
+build translucent.frag translucent_frag
+build translucent.frag translucent_ms_frag -DMULTISAMPLED
 echo "Shader headers written to $DIR"

@@ -15,6 +15,10 @@
 
 layout(location = 0) in vec2 vScreen;
 layout(location = 0) out vec4 outColour;
+// New3D's translucency layers, in the same pass when TranslucentLayers is on: left blank, as they
+// were just cleared (see CVulkan3D::CreateFogPipeline).
+layout(location = 1) out vec4 outTrans1;
+layout(location = 2) out vec4 outTrans2;
 
 layout(push_constant) uniform PushConstants
 {
@@ -47,4 +51,6 @@ void main()
 	// Final colour. The alpha carries the fog amount so the 2D layer underneath
 	// is dimmed by the ambient fog exactly like New3D does.
 	outColour = vec4(lFogColor + lSpotFogColor, pc.fogColour.a);
+	outTrans1 = vec4(0.0);
+	outTrans2 = vec4(0.0);
 }

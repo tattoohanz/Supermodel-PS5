@@ -28,6 +28,8 @@
 #include "Shaders/real3d_frag.spv.h"
 #include "Shaders/fog_vert.spv.h"
 #include "Shaders/fog_frag.spv.h"
+#include "Shaders/translucent_frag.spv.h"
+#include "Shaders/translucent_ms_frag.spv.h"
 #ifdef SUPERMODEL_PS5
 #include "Diag.h"
 #include "Util/Format.h"
@@ -108,6 +110,34 @@ CVulkan3D::CVulkan3D(const Util::Config::Node& config, const std::string& gameNa
 			ErrorLog("Vulkan: %dx MSAA is not supported for both attachments; using 1x.", msaa);
 		}
 	}
+
+	// Translucency in two layers, as New3D (see m_transLayers). The layers are sampled by the composite,
+	// and the depth is copied aside and back; both are asked of the driver for the sample count in use.
+	m_transLayers = config["TranslucentLayers"].ValueAsDefault<bool>(true);
+	if (m_transLayers)
+	{
+		VkPhysicalDevice physical = context.PhysicalDevice();
+		VkImageFormatProperties colorProps = {};
+		VkImageFormatProperties depthProps = {};
+		const bool colorOk = physical != VK_NULL_HANDLE &&
+			vkGetPhysicalDeviceImageFormatProperties(physical, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TYPE_2D,
+				VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 0, &colorProps) == VK_SUCCESS &&
+			(colorProps.sampleCounts & m_samples) != 0;
+		const bool depthOk = physical != VK_NULL_HANDLE &&
+			vkGetPhysicalDeviceImageFormatProperties(physical, m_depthFormat, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
+				VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+				0, &depthProps) == VK_SUCCESS &&
+			(depthProps.sampleCounts & m_samples) != 0;
+		m_transLayers = colorOk;
+		m_transDepthCopy = colorOk && depthOk;
+		if (!colorOk)
+			ErrorLog("Vulkan3D: translucent polygons are blended straight into the scene - the driver cannot sample a %ux colour target.", m_sampleBits);
+		else
+			InfoLog("Vulkan3D: translucent polygons go into two layers laid over the scene at the end of the frame, as New3D (TranslucentLayers)%s.",
+				m_transDepthCopy ? "" : "; the second layer is tested against the first's depth (the depth cannot be copied)");
+	}
+	else
+		InfoLog("Vulkan3D: translucent polygons are blended straight into the scene (TranslucentLayers off).");
 }
 
 CVulkan3D::~CVulkan3D()
@@ -141,9 +171,19 @@ CVulkan3D::~CVulkan3D()
 		vkDestroyPipeline(device, m_overlayOpaque, nullptr);
 	if (m_overlayTranslucent)
 		vkDestroyPipeline(device, m_overlayTranslucent, nullptr);
-	for (VkPipeline pipeline : { m_opaqueLayered, m_translucentLayered, m_overlayOpaqueLayered, m_overlayTranslucentLayered })
+	for (VkPipeline pipeline : { m_opaqueLayered, m_translucentLayered, m_overlayOpaqueLayered, m_overlayTranslucentLayered, m_composite })
 		if (pipeline)
 			vkDestroyPipeline(device, pipeline, nullptr);
+	if (m_compLayout)
+		vkDestroyPipelineLayout(device, m_compLayout, nullptr);
+	if (m_compPool)
+		vkDestroyDescriptorPool(device, m_compPool, nullptr);
+	if (m_compSetLayout)
+		vkDestroyDescriptorSetLayout(device, m_compSetLayout, nullptr);
+	if (m_compSampler)
+		vkDestroySampler(device, m_compSampler, nullptr);
+	if (m_compFrag)
+		vkDestroyShaderModule(device, m_compFrag, nullptr);
 	if (m_layout)
 		vkDestroyPipelineLayout(device, m_layout, nullptr);
 	if (m_fog)
@@ -315,6 +355,11 @@ Result CVulkan3D::Init(unsigned xOffset, unsigned yOffset, unsigned xRes, unsign
 		ErrorLog("Vulkan3D: fog pipeline creation failed.");
 		return Result::FAIL;
 	}
+	if (m_transLayers && !CreateTranslucentComposite())
+	{
+		ErrorLog("Vulkan3D: translucency composite creation failed.");
+		return Result::FAIL;
+	}
 	InfoLog("Vulkan3D: renderer ready.");
 	return Result::OKAY;
 }
@@ -383,6 +428,12 @@ bool CVulkan3D::CreatePipeline(bool translucent, bool overlay, bool layered)
 	// let the dark far side of the mouth cover the snout as a black patch.
 	depth.depthWriteEnable = VK_TRUE;
 	depth.depthCompareOp = overlay ? VK_COMPARE_OP_GREATER_OR_EQUAL : VK_COMPARE_OP_GREATER;
+	// New3D draws every translucent polygon, overlay or not, with GREATER (RenderFrame's glDepthFunc
+	// after the opaque pass). With the translucency layers nothing blends, so of two coplanar ones in
+	// a layer the compare decides which stays: the first, as in New3D. The overlay pass clears the
+	// depth before it, so this only compares overlay polygons with each other.
+	if (translucent && overlay && m_transLayers)
+		depth.depthCompareOp = VK_COMPARE_OP_GREATER;
 	if (layered)
 	{
 		// New3D: glStencilFunc(GL_EQUAL, 0, 0x7F), glStencilOp(GL_KEEP, GL_INCR, GL_INCR),
@@ -399,30 +450,38 @@ bool CVulkan3D::CreatePipeline(bool translucent, bool overlay, bool layered)
 		depth.front = op;
 		depth.back = op;
 	}
-	VkPipelineColorBlendAttachmentState blendAtt = {};
-	blendAtt.blendEnable = translucent ? VK_TRUE : VK_FALSE;
-	blendAtt.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-	blendAtt.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-	blendAtt.colorBlendOp = VK_BLEND_OP_ADD;
-	blendAtt.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-	blendAtt.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-	blendAtt.alphaBlendOp = VK_BLEND_OP_ADD;
-	blendAtt.colorWriteMask = 0xF;
+	// One target, the translucent polygons blended into it; or New3D's translucency layers
+	// (m_transLayers), where nothing blends: the opaque pipelines write the scene and both layers
+	// (blanking the layers under what they draw), the translucent ones the one layer their pass has.
+	// All of a pipeline's targets are written alike, as independentBlend is not enabled.
+	VkPipelineColorBlendAttachmentState blendAtts[3] = {};
+	for (int i = 0; i < 3; i++)
+	{
+		blendAtts[i].blendEnable = (translucent && !m_transLayers) ? VK_TRUE : VK_FALSE;
+		blendAtts[i].srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+		blendAtts[i].dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+		blendAtts[i].colorBlendOp = VK_BLEND_OP_ADD;
+		blendAtts[i].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+		blendAtts[i].dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+		blendAtts[i].alphaBlendOp = VK_BLEND_OP_ADD;
+		blendAtts[i].colorWriteMask = 0xF;
+	}
+	const uint32_t attachments = (m_transLayers && !translucent) ? 3 : 1;
 	VkPipelineColorBlendStateCreateInfo blend = {};
 	blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-	blend.attachmentCount = 1;
-	blend.pAttachments = &blendAtt;
+	blend.attachmentCount = attachments;
+	blend.pAttachments = blendAtts;
 	VkDynamicState dynamics[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
 	VkPipelineDynamicStateCreateInfo dynamic = {};
 	dynamic.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
 	dynamic.dynamicStateCount = 2;
 	dynamic.pDynamicStates = dynamics;
 
-	VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
+	VkFormat colorFormats[3] = { VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM };
 	VkPipelineRenderingCreateInfo rendering = {};
 	rendering.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-	rendering.colorAttachmentCount = 1;
-	rendering.pColorAttachmentFormats = &colorFormat;
+	rendering.colorAttachmentCount = attachments;
+	rendering.pColorAttachmentFormats = colorFormats;
 	rendering.depthAttachmentFormat = m_depthFormat;
 	rendering.stencilAttachmentFormat = m_stencil ? m_depthFormat : VK_FORMAT_UNDEFINED;
 
@@ -520,24 +579,31 @@ bool CVulkan3D::CreateFogPipeline()
 	depth.depthTestEnable = VK_FALSE;
 	depth.depthWriteEnable = VK_FALSE;
 	depth.depthCompareOp = VK_COMPARE_OP_ALWAYS;
-	VkPipelineColorBlendAttachmentState blendAtt = {};
-	blendAtt.blendEnable = VK_FALSE;
-	blendAtt.colorWriteMask = 0xF;
+	// Drawn in the frame's first pass, which has the translucency layers too when m_transLayers: the
+	// shader writes them blank, which is what they were just cleared to (all targets alike, as
+	// independentBlend is not enabled).
+	VkPipelineColorBlendAttachmentState blendAtts[3] = {};
+	for (int i = 0; i < 3; i++)
+	{
+		blendAtts[i].blendEnable = VK_FALSE;
+		blendAtts[i].colorWriteMask = 0xF;
+	}
+	const uint32_t attachments = m_transLayers ? 3 : 1;
 	VkPipelineColorBlendStateCreateInfo blend = {};
 	blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-	blend.attachmentCount = 1;
-	blend.pAttachments = &blendAtt;
+	blend.attachmentCount = attachments;
+	blend.pAttachments = blendAtts;
 	VkDynamicState dynamics[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
 	VkPipelineDynamicStateCreateInfo dynamic = {};
 	dynamic.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
 	dynamic.dynamicStateCount = 2;
 	dynamic.pDynamicStates = dynamics;
 
-	VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
+	VkFormat colorFormats[3] = { VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM };
 	VkPipelineRenderingCreateInfo rendering = {};
 	rendering.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-	rendering.colorAttachmentCount = 1;
-	rendering.pColorAttachmentFormats = &colorFormat;
+	rendering.colorAttachmentCount = attachments;
+	rendering.pColorAttachmentFormats = colorFormats;
 	rendering.depthAttachmentFormat = m_depthFormat;
 	rendering.stencilAttachmentFormat = m_stencil ? m_depthFormat : VK_FORMAT_UNDEFINED;
 
@@ -727,6 +793,172 @@ void CVulkan3D::DrawFog(VkCommandBuffer cmd)
 	}
 }
 
+/*
+ * The composite that lays New3D's two translucency layers over the scene (m_transLayers): a
+ * full-screen quad (the fog's vertex shader) reading both layers at the pixel, premultiplied out of
+ * the shader and blended ONE / ONE_MINUS_SRC_ALPHA, which for one sample is the SRC_ALPHA blend the
+ * translucent pipelines used to do - the scene's alpha comes out the same for the 2D compositor.
+ * Multisampled, it averages the samples, and the pass resolves the scene again.
+ */
+bool CVulkan3D::CreateTranslucentComposite()
+{
+	VkDevice device = m_context.Device();
+	const bool ms = m_samples > VK_SAMPLE_COUNT_1_BIT;
+
+	VkShaderModuleCreateInfo moduleInfo = {};
+	moduleInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+	moduleInfo.codeSize = ms ? translucent_ms_frag_spv_size : translucent_frag_spv_size;
+	moduleInfo.pCode = ms ? translucent_ms_frag_spv : translucent_frag_spv;
+	if (vkCreateShaderModule(device, &moduleInfo, nullptr, &m_compFrag) != VK_SUCCESS)
+		return false;
+
+	VkSamplerCreateInfo samplerInfo = {};
+	samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+	samplerInfo.magFilter = VK_FILTER_NEAREST;
+	samplerInfo.minFilter = VK_FILTER_NEAREST;
+	samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+	samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	samplerInfo.maxLod = 0.0f;
+	if (vkCreateSampler(device, &samplerInfo, nullptr, &m_compSampler) != VK_SUCCESS)
+		return false;
+
+	VkDescriptorSetLayoutBinding bindings[2] = {};
+	for (uint32_t i = 0; i < 2; i++)
+	{
+		bindings[i].binding = i;
+		bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		bindings[i].descriptorCount = 1;
+		bindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	}
+	VkDescriptorSetLayoutCreateInfo setInfo = {};
+	setInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	setInfo.bindingCount = 2;
+	setInfo.pBindings = bindings;
+	if (vkCreateDescriptorSetLayout(device, &setInfo, nullptr, &m_compSetLayout) != VK_SUCCESS)
+		return false;
+
+	VkDescriptorPoolSize poolSize = { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2 };
+	VkDescriptorPoolCreateInfo poolInfo = {};
+	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	poolInfo.maxSets = 1;
+	poolInfo.poolSizeCount = 1;
+	poolInfo.pPoolSizes = &poolSize;
+	if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_compPool) != VK_SUCCESS)
+		return false;
+	VkDescriptorSetAllocateInfo allocInfo = {};
+	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocInfo.descriptorPool = m_compPool;
+	allocInfo.descriptorSetCount = 1;
+	allocInfo.pSetLayouts = &m_compSetLayout;
+	if (vkAllocateDescriptorSets(device, &allocInfo, &m_compSet) != VK_SUCCESS)
+		return false;
+
+	VkPipelineLayoutCreateInfo layoutInfo = {};
+	layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+	layoutInfo.setLayoutCount = 1;
+	layoutInfo.pSetLayouts = &m_compSetLayout;
+	if (vkCreatePipelineLayout(device, &layoutInfo, nullptr, &m_compLayout) != VK_SUCCESS)
+		return false;
+
+	VkPipelineShaderStageCreateInfo stages[2] = {};
+	stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+	stages[0].module = m_fogVert;
+	stages[0].pName = "main";
+	stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+	stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+	stages[1].module = m_compFrag;
+	stages[1].pName = "main";
+
+	VkPipelineVertexInputStateCreateInfo vertex = {};
+	vertex.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+	VkPipelineInputAssemblyStateCreateInfo assembly = {};
+	assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+	assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+	VkPipelineViewportStateCreateInfo viewport = {};
+	viewport.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+	viewport.viewportCount = 1;
+	viewport.scissorCount = 1;
+	VkPipelineRasterizationStateCreateInfo raster = {};
+	raster.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+	raster.polygonMode = VK_POLYGON_MODE_FILL;
+	raster.cullMode = VK_CULL_MODE_NONE;
+	raster.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	raster.lineWidth = 1.0f;
+	VkPipelineMultisampleStateCreateInfo multi = {};
+	multi.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+	multi.rasterizationSamples = m_samples;
+	VkPipelineDepthStencilStateCreateInfo depth = {};
+	depth.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+	VkPipelineColorBlendAttachmentState blendAtt = {};
+	blendAtt.blendEnable = VK_TRUE;
+	blendAtt.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+	blendAtt.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	blendAtt.colorBlendOp = VK_BLEND_OP_ADD;
+	blendAtt.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+	blendAtt.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	blendAtt.alphaBlendOp = VK_BLEND_OP_ADD;
+	blendAtt.colorWriteMask = 0xF;
+	VkPipelineColorBlendStateCreateInfo blend = {};
+	blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+	blend.attachmentCount = 1;
+	blend.pAttachments = &blendAtt;
+	VkDynamicState dynamics[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+	VkPipelineDynamicStateCreateInfo dynamic = {};
+	dynamic.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+	dynamic.dynamicStateCount = 2;
+	dynamic.pDynamicStates = dynamics;
+	VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
+	VkPipelineRenderingCreateInfo rendering = {};
+	rendering.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+	rendering.colorAttachmentCount = 1;
+	rendering.pColorAttachmentFormats = &colorFormat;
+
+	VkGraphicsPipelineCreateInfo info = {};
+	info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+	info.pNext = &rendering;
+	info.stageCount = 2;
+	info.pStages = stages;
+	info.pVertexInputState = &vertex;
+	info.pInputAssemblyState = &assembly;
+	info.pViewportState = &viewport;
+	info.pRasterizationState = &raster;
+	info.pMultisampleState = &multi;
+	info.pDepthStencilState = &depth;
+	info.pColorBlendState = &blend;
+	info.pDynamicState = &dynamic;
+	info.layout = m_compLayout;
+	VkResult result = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &info, nullptr, &m_composite);
+	if (result != VK_SUCCESS)
+		ErrorLog("Vulkan3D: vkCreateGraphicsPipelines (translucency composite) failed (%d).", (int)result);
+	return result == VK_SUCCESS;
+}
+
+// Points the composite at the translucency layers; called when the targets have been rebuilt, after
+// the device has gone idle, so the set is not in use.
+void CVulkan3D::UpdateTranslucentSet()
+{
+	if (!m_compSet || !m_trans[0].view || !m_trans[1].view)
+		return;
+	VkDescriptorImageInfo images[2] = {};
+	VkWriteDescriptorSet writes[2] = {};
+	for (int i = 0; i < 2; i++)
+	{
+		images[i].sampler = m_compSampler;
+		images[i].imageView = m_trans[i].view;
+		images[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		writes[i].dstSet = m_compSet;
+		writes[i].dstBinding = (uint32_t)i;
+		writes[i].descriptorCount = 1;
+		writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		writes[i].pImageInfo = &images[i];
+	}
+	vkUpdateDescriptorSets(m_context.Device(), 2, writes, 0, nullptr);
+}
+
 void CVulkan3D::DestroyTargets()
 {
 	/*
@@ -752,6 +984,15 @@ void CVulkan3D::DestroyTargets()
 	m_context.DestroyView(m_colorResolve.view);
 	m_colorResolve.view = VK_NULL_HANDLE;
 	m_context.Memory().DestroyImage(m_colorResolve);
+	for (int i = 0; i < 2; i++)
+	{
+		m_context.DestroyView(m_trans[i].view);
+		m_trans[i].view = VK_NULL_HANDLE;
+		m_context.Memory().DestroyImage(m_trans[i]);
+		m_transLayout[i] = VK_IMAGE_LAYOUT_UNDEFINED;
+	}
+	m_context.Memory().DestroyImage(m_depthCopy);
+	m_depthCopyLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	m_colorLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	m_depthLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	m_resolveLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -780,15 +1021,19 @@ bool CVulkan3D::EnsureTargets()
 			colorUsage, m_color, (uint32_t)m_samples))
 		return false;
 	m_color.view = m_context.CreateView(m_color.image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1);
-	// TRANSFER_SRC is only legal on a single-sampled image, so the depth image must not ask for it
-	// when multisampling: only TRANSFER_DST is permitted on a multisampled image. The flag exists so
+	// TRANSFER_SRC is not asked for on the multisampled depth image for the line of sight (unless the
+	// translucency layers' depth copy needs it, below, and the driver has confirmed it). The flag exists so
 	// the line-of-sight readback can copy depth out, and that readback is skipped under MSAA anyway
-	// (see CopyLos), so dropping it here costs nothing. Requesting it regardless is invalid and a
-	// driver is within its rights to refuse to render into the attachment at all, which shows up as
-	// the 3D scene vanishing while the 2D layers still draw.
-	const VkImageUsageFlags depthUsage = (m_samples > VK_SAMPLE_COUNT_1_BIT)
+	// (see CopyLos), so dropping it here costs nothing. Asked for without the driver confirming it
+	// for the sample count, a driver is within its rights to refuse to render into the attachment at
+	// all, which shows up as the 3D scene vanishing while the 2D layers still draw.
+	VkImageUsageFlags depthUsage = (m_samples > VK_SAMPLE_COUNT_1_BIT)
 		? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
 		: (VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+	// Copied aside and back between the translucency layers (m_transDepthCopy), which the driver
+	// confirmed for this sample count in the constructor.
+	if (m_transDepthCopy)
+		depthUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 	if (!m_context.Memory().CreateImage(extent.width, extent.height, 1, m_depthFormat,
 			depthUsage, m_depth, (uint32_t)m_samples))
 		return false;
@@ -799,6 +1044,28 @@ bool CVulkan3D::EnsureTargets()
 				VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, m_colorResolve))
 			return false;
 		m_colorResolve.view = m_context.CreateView(m_colorResolve.image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1);
+	}
+	if (m_transLayers)
+	{
+		for (int i = 0; i < 2; i++)
+		{
+			if (!m_context.Memory().CreateImage(extent.width, extent.height, 1, VK_FORMAT_R8G8B8A8_UNORM,
+					VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, m_trans[i], (uint32_t)m_samples))
+			{
+				ErrorLog("Vulkan3D: translucency layer %d (%ux%u) could not be allocated.", i + 1, extent.width, extent.height);
+				return false;
+			}
+			m_trans[i].view = m_context.CreateView(m_trans[i].image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1);
+			m_transLayout[i] = VK_IMAGE_LAYOUT_UNDEFINED;
+		}
+		if (m_transDepthCopy && !m_context.Memory().CreateImage(extent.width, extent.height, 1, m_depthFormat,
+				VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, m_depthCopy, (uint32_t)m_samples))
+		{
+			ErrorLog("Vulkan3D: the depth copy (%ux%u) could not be allocated.", extent.width, extent.height);
+			return false;
+		}
+		m_depthCopyLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		UpdateTranslucentSet();
 	}
 	m_colorLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	m_depthLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -1126,7 +1393,9 @@ void CVulkan3D::CopyLos(VkCommandBuffer cmd, int priority)
 void CVulkan3D::DrawScene(VkCommandBuffer cmd)
 {
 	VkCommandBuffer command = cmd;
-	auto begin = [&](bool clear)
+	// layer -1: the scene (with both translucency layers when m_transLayers); 0 or 1: that
+	// translucency layer alone (m_transLayers), the scene and the other layer left as they are.
+	auto begin = [&](bool clear, int layer = -1)
 	{
 		VkImageLayout old = m_colorLayout;
 		VkImageLayout next = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -1170,16 +1439,133 @@ void CVulkan3D::DrawScene(VkCommandBuffer cmd)
 		depth.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 		depth.clearValue.depthStencil.depth = 0;
 		depth.clearValue.depthStencil.stencil = 0;
+		// New3D's translucency layers (m_transLayers): with the scene, cleared at the start of the
+		// frame and blanked by the opaque pass, or one alone for its translucent polygons.
+		VkRenderingAttachmentInfo colors[3] = {};
+		uint32_t colorCount = 0;
+		if (layer < 0)
+			colors[colorCount++] = color;
+		if (m_transLayers)
+			for (int i = 0; i < 2; i++)
+			{
+				if (layer >= 0 && layer != i)
+					continue;
+				if (m_transLayout[i] != VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+				{
+					CmdTransition(command, m_trans[i].image, m_transLayout[i], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+					m_transLayout[i] = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+				}
+				VkRenderingAttachmentInfo& t = colors[colorCount++];
+				t.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+				t.imageView = m_trans[i].view;
+				t.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+				t.loadOp = clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+				t.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+			}
+		VkRenderingInfo info = {};
+		info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+		info.renderArea.extent = { m_color.width, m_color.height };
+		info.layerCount = 1;
+		info.colorAttachmentCount = colorCount;
+		info.pColorAttachments = colors;
+		info.pDepthAttachment = &depth;
+		if (m_stencil)
+			info.pStencilAttachment = &depth;
+		CmdBeginRendering(command, &info);
+	};
+	// R3DFrameBuffers::StoreDepth / RestoreDepth: the depth (and the layered polygons' stencil) the
+	// opaque pass left, copied aside before the first translucency layer and back before the second.
+	// Outside a rendering pass; begin() puts the depth back into its attachment layout.
+	auto copyDepth = [&](bool store)
+	{
+		AllocatedImage& src = store ? m_depth : m_depthCopy;
+		AllocatedImage& dst = store ? m_depthCopy : m_depth;
+		VkImageLayout& srcLayout = store ? m_depthLayout : m_depthCopyLayout;
+		VkImageLayout& dstLayout = store ? m_depthCopyLayout : m_depthLayout;
+		CmdTransition(command, src.image, srcLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, DepthAspect());
+		srcLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		CmdTransition(command, dst.image, dstLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, DepthAspect());
+		dstLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		VkImageCopy regions[2] = {};
+		const uint32_t count = m_stencil ? 2 : 1;
+		for (uint32_t i = 0; i < count; i++)
+		{
+			const VkImageAspectFlags aspect = i == 0 ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_STENCIL_BIT;
+			regions[i].srcSubresource.aspectMask = aspect;
+			regions[i].srcSubresource.layerCount = 1;
+			regions[i].dstSubresource = regions[i].srcSubresource;
+			regions[i].extent = { m_depth.width, m_depth.height, 1 };
+		}
+		vkCmdCopyImage(command, src.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, count, regions);
+		m_depthCopies++;
+	};
+	// Whether this priority layer's pass has polygons for a layer, as drawLayer() would pick them.
+	auto hasLayer = [&](int priority, bool overlay, New3D::Layer layer) -> bool
+	{
+		for (const auto& node : m_scene.Nodes())
+		{
+			if (node.viewport.priority != priority || node.models.empty())
+				continue;
+			for (const auto& model : node.models)
+			{
+				if (!model.meshes)
+					continue;
+				for (auto& mesh : *model.meshes)
+					if (mesh.highPriority == overlay && mesh.vertexCount > 0 && mesh.Render(layer, model.alpha))
+						return true;
+			}
+		}
+		return false;
+	};
+	// New3D's R3DFrameBuffers::Draw(), the translucency part: both layers over the scene, once, after
+	// every priority layer. Multisampled, the pass resolves the scene into m_colorResolve again.
+	auto composite = [&]()
+	{
+		for (int i = 0; i < 2; i++)
+		{
+			CmdTransition(command, m_trans[i].image, m_transLayout[i], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+			m_transLayout[i] = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		}
+		if (m_colorLayout != VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+		{
+			CmdTransition(command, m_color.image, m_colorLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+			m_colorLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		}
+		VkRenderingAttachmentInfo color = {};
+		color.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+		color.imageView = m_color.view;
+		color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		color.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+		color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		if (m_samples > VK_SAMPLE_COUNT_1_BIT)
+		{
+			if (m_resolveLayout != VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+			{
+				CmdTransition(command, m_colorResolve.image, m_resolveLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+				m_resolveLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+			}
+			color.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+			color.resolveImageView = m_colorResolve.view;
+			color.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		}
 		VkRenderingInfo info = {};
 		info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
 		info.renderArea.extent = { m_color.width, m_color.height };
 		info.layerCount = 1;
 		info.colorAttachmentCount = 1;
 		info.pColorAttachments = &color;
-		info.pDepthAttachment = &depth;
-		if (m_stencil)
-			info.pStencilAttachment = &depth;
 		CmdBeginRendering(command, &info);
+		vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_composite);
+		vkCmdBindDescriptorSets(command, VK_PIPELINE_BIND_POINT_GRAPHICS, m_compLayout, 0, 1, &m_compSet, 0, nullptr);
+		VkViewport view = {};
+		view.width = (float)m_color.width;
+		view.height = (float)m_color.height;
+		view.maxDepth = 1.0f;
+		VkRect2D scissor = { { 0, 0 }, { m_color.width, m_color.height } };
+		vkCmdSetViewport(command, 0, 1, &view);
+		vkCmdSetScissor(command, 0, 1, &scissor);
+		vkCmdDraw(command, 4, 1, 0, 0);
+		CmdEndRendering(command);
 	};
 	// Closes the scene pass and, when multisampling, prepares the resolved image for the 2D layer to
 	// sample. Every path that ends the scene rendering must go through here.
@@ -1425,6 +1811,7 @@ void CVulkan3D::DrawScene(VkCommandBuffer cmd)
 	DrawFog(command);
 
 	bool inRenderPass = true;
+	bool anyTranslucent = false;   // New3D's translucency layers have something to lay over the scene
 	for (int priority = 0; priority <= 3; priority++)
 	{
 		bool any = false;
@@ -1450,12 +1837,41 @@ void CVulkan3D::DrawScene(VkCommandBuffer cmd)
 			if (!renderOverlay)
 				CopyLos(command, priority);
 
-			begin(false);
-			inRenderPass = true;
-			drawLayer(priority, renderOverlay, New3D::Layer::trans1, false, true);
-			drawLayer(priority, renderOverlay, New3D::Layer::trans2, false, true);
-			CmdEndRendering(command);
-			inRenderPass = false;
+			if (m_transLayers)
+			{
+				// New3D: the first layer against the opaque pass's depth, writing depth; that depth put
+				// back; the second layer against it. Only the layers with polygons are drawn, and the
+				// depth is only copied when both have some.
+				const bool trans1 = hasLayer(priority, renderOverlay, New3D::Layer::trans1);
+				const bool trans2 = hasLayer(priority, renderOverlay, New3D::Layer::trans2);
+				const bool restore = trans1 && trans2 && m_transDepthCopy;
+				anyTranslucent = anyTranslucent || trans1 || trans2;
+				if (restore)
+					copyDepth(true);
+				if (trans1)
+				{
+					begin(false, 0);
+					drawLayer(priority, renderOverlay, New3D::Layer::trans1, false, true);
+					CmdEndRendering(command);
+				}
+				if (restore)
+					copyDepth(false);
+				if (trans2)
+				{
+					begin(false, 1);
+					drawLayer(priority, renderOverlay, New3D::Layer::trans2, false, true);
+					CmdEndRendering(command);
+				}
+			}
+			else
+			{
+				begin(false);
+				inRenderPass = true;
+				drawLayer(priority, renderOverlay, New3D::Layer::trans1, false, true);
+				drawLayer(priority, renderOverlay, New3D::Layer::trans2, false, true);
+				CmdEndRendering(command);
+				inRenderPass = false;
+			}
 
 			if (!hasOverlay)
 				break;
@@ -1463,7 +1879,17 @@ void CVulkan3D::DrawScene(VkCommandBuffer cmd)
 	}
 
 	if (inRenderPass)
-		finishScene();
+	{
+		CmdEndRendering(command);
+		inRenderPass = false;
+	}
+	if (anyTranslucent)
+	{
+		composite();
+		if (m_transFrames++ == 0)
+			InfoLog("Vulkan3D: first translucency layers laid over the scene (%s).",
+				m_transDepthCopy ? "the second against the opaque depth, copied back" : "the second against the first's depth");
+	}
 
 	// Hand the resolved scene to the compositor even when no render pass is left open.
 	//

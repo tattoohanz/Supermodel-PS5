@@ -62,6 +62,8 @@ public:
 private:
 	bool CreatePipeline(bool translucent, bool overlay, bool layered = false);
 	bool CreateFogPipeline();
+	bool CreateTranslucentComposite();
+	void UpdateTranslucentSet();
 	bool EnsureTargets();
 	void DestroyTargets();
 	R3DVertex ConvertVertex(const New3D::FVertex& src) const;
@@ -109,6 +111,39 @@ private:
 	VkPipeline m_translucentLayered = VK_NULL_HANDLE;
 	VkPipeline m_overlayOpaqueLayered = VK_NULL_HANDLE;
 	VkPipeline m_overlayTranslucentLayered = VK_NULL_HANDLE;
+	/*
+	 * Translucency as New3D draws it (TranslucentLayers, on unless set to 0).
+	 *
+	 * New3D does not blend a translucent polygon into the picture. Each priority layer's translucent
+	 * polygons go, unblended and with depth writes, into one of two extra colour targets (the polygon
+	 * header picks which), the second layer drawn against the depth the opaque pass left rather than
+	 * the first layer's (R3DFrameBuffers::StoreDepth/RestoreDepth); only at the end of the frame are
+	 * the two laid over the scene, by the shader in R3DFrameBuffers::AllocShaderTrans. Overlapping
+	 * translucent polygons of one layer therefore replace each other instead of darkening again -
+	 * Harley-Davidson's shadows are several of them, and blended one by one they came out as dark,
+	 * jagged patches. The opaque pass writes all three targets, blanking the translucency layers
+	 * under what it draws, as New3D's colour layer does.
+	 *
+	 * The opaque pipelines then write the scene and both layers, the translucent ones one target; the
+	 * same pipelines draw both, each layer in a pass of its own with only its target attached, so
+	 * that every pipeline writes all its targets alike (no independentBlend needed). With the setting
+	 * off there is one target and the translucent pipelines blend into it, as this renderer did before.
+	 */
+	bool m_transLayers = false;
+	bool m_transDepthCopy = false;   // the depth can be copied aside and back (R3DFrameBuffers::StoreDepth)
+	AllocatedImage m_trans[2];
+	VkImageLayout m_transLayout[2] = { VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_UNDEFINED };
+	AllocatedImage m_depthCopy;
+	VkImageLayout m_depthCopyLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	VkShaderModule m_compFrag = VK_NULL_HANDLE;
+	VkSampler m_compSampler = VK_NULL_HANDLE;
+	VkDescriptorSetLayout m_compSetLayout = VK_NULL_HANDLE;
+	VkDescriptorPool m_compPool = VK_NULL_HANDLE;
+	VkDescriptorSet m_compSet = VK_NULL_HANDLE;
+	VkPipelineLayout m_compLayout = VK_NULL_HANDLE;
+	VkPipeline m_composite = VK_NULL_HANDLE;
+	uint64_t m_transFrames = 0;      // frames that had translucent polygons (for the first log line)
+	uint64_t m_depthCopies = 0;
 	VkFormat m_depthFormat = VK_FORMAT_D32_SFLOAT;
 	bool m_stencil = false;
 	uint64_t m_layeredDraws = 0;

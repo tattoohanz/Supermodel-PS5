@@ -20,15 +20,24 @@ $sources = @(
     'composite.vert', 'composite.frag',
     'texdecode.comp',
     'fog.vert', 'fog.frag',
-    'post.frag'
+    'post.frag',
+    'translucent.frag',
+    # A second header compiled from the same source (-DMULTISAMPLED): source=header stem.
+    'translucent.frag=translucent_ms_frag'
 )
 
 $stale = @()
 
 foreach ($name in $sources)
 {
+    $stem = $name -replace '\.', '_'
+    if ($name -match '^(.+)=(.+)$')
+    {
+        $name = $Matches[1]
+        $stem = $Matches[2]
+    }
     $source = Join-Path $shaderDir $name
-    $header = Join-Path $shaderDir (($name -replace '\.', '_') + '.spv.h')
+    $header = Join-Path $shaderDir ($stem + '.spv.h')
 
     if (-not (Test-Path $source))
     {

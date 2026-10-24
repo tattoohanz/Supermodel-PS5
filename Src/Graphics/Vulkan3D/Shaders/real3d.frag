@@ -10,6 +10,12 @@ layout(location = 5) in float vFaceDot;
 layout(location = 6) in float vLodBase;
 
 layout(location = 0) out vec4 outColour;
+// New3D's two translucency layers (TranslucentLayers, see CVulkan3D::DrawScene). The opaque pass
+// has the scene and both layers attached and blanks the layers, as New3D's WriteOutputs() does; a
+// translucent pass has only its own layer attached, as location 0, so outColour lands there and
+// these are dropped, as they are with the setting off.
+layout(location = 1) out vec4 outTrans1;
+layout(location = 2) out vec4 outTrans2;
 
 struct R3DMaterial
 {
@@ -453,4 +459,14 @@ void main()
 	// Real3D writes a 1/w depth so nearer fragments compare greater.
 	gl_FragDepth = pc.projection[3][2] * gl_FragCoord.w;
 	outColour = colour;
+	if (pc.extra.z > 0.5)
+	{
+		outTrans1 = vec4(0.0);
+		outTrans2 = vec4(0.0);
+	}
+	else
+	{
+		outTrans1 = colour;
+		outTrans2 = colour;
+	}
 }

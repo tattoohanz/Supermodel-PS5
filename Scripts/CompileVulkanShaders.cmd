@@ -41,6 +41,10 @@ call :build fog.frag fog_frag frag
 if errorlevel 1 exit /b 1
 call :build post.frag post_frag frag
 if errorlevel 1 exit /b 1
+call :build translucent.frag translucent_frag frag
+if errorlevel 1 exit /b 1
+call :build translucent.frag translucent_ms_frag frag -DMULTISAMPLED
+if errorlevel 1 exit /b 1
 echo Shader headers written to Src\Graphics\Vulkan3D\Shaders
 exit /b 0
 
@@ -55,7 +59,8 @@ rem to load. The backend runs on either, and 1.2 with the dynamic rendering and 
 rem extensions is supported on purpose - see ClassifyDevice in VulkanContext.cpp - so requiring
 rem maintenance4 for the shaders alone would shut those devices out at shader-module creation, with an
 rem error that points at the shader rather than at the version. SPIR-V 1.5 loads on both.
-"%GLSLANG%" -V --target-env vulkan1.2 -o "%SPV%" "%SRC%"
+rem An optional fourth argument is passed on (-DMULTISAMPLED for the composite's multisampled variant).
+"%GLSLANG%" -V --target-env vulkan1.2 %~4 -o "%SPV%" "%SRC%"
 if errorlevel 1 exit /b 1
 powershell -NoLogo -Command ^
   "$bytes = [System.IO.File]::ReadAllBytes('%SPV%');" ^
