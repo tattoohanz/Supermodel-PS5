@@ -12,9 +12,9 @@
 #                                      rest fitted, centred, into a square
 #
 # Usage: ps5/prepare-art.sh [--icon NAME] [--icon-fill COLOUR] [--icon-margin PX]
-#   --icon NAME         the icon's artwork, art-src/NAME.png (default: logo-pill)
+#   --icon NAME         the icon's artwork, art-src/NAME.png (default: logo-clear)
 #   --icon-fill COLOUR  what the square shows around it (default: black)
-#   --icon-margin PX    space kept free on each side, of 512 (default: 12)
+#   --icon-margin PX    space kept free on each side, of 512 (default: 28)
 #
 # The BC7 encoding and the checks are PS5_Vulkan's tools/prepare-assets.sh.
 
@@ -24,9 +24,9 @@ here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 vk=${PS5_VULKAN:-/root/ps5/PS5_Vulkan}
 src=$here/assets/art-src
 out=$here/assets/sce_sys
-icon=logo-pill
+icon=logo-clear
 fill=black
-margin=12
+margin=28
 
 while (($#)); do
     case "$1" in
