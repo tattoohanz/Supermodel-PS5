@@ -663,9 +663,27 @@ static int RunSession(const GameLoader &loader, const MenuGame &choice)
   unsigned underrunsAtStat = 0, overrunsAtStat = 0;
   GetAudioBufferStats(&underrunsAtStat, &overrunsAtStat);
   uint64_t l3Since = 0;
+  // Analog joystick games (Star Wars Trilogy): L1 turns the left stick round,
+  // for the duels; a toast says which way it is.
+  const bool stickToggle = (game.inputs & Game::INPUT_ANALOG_JOYSTICK) != 0;
+  bool stickInverted = false, l1Before = false;
+  CPS5InputSystem::SetLeftStickInverted(false);
   for (;;)
   {
     Inputs->Poll(&game, xOffset, yOffset, xRes, yRes);
+
+    if (stickToggle)
+    {
+      const bool l1 = (PS5PadLast().buttons & PS5_PAD_L1) != 0;
+      if (l1 && !l1Before)
+      {
+        stickInverted = !stickInverted;
+        CPS5InputSystem::SetLeftStickInverted(stickInverted);
+        InfoLog("Input: left stick %s (L1).", stickInverted ? "inverted" : "normal again");
+        PS5Notify(stickInverted ? "Supermodel: stick inverted (L1)" : "Supermodel: stick normal (L1)");
+      }
+      l1Before = l1;
+    }
 
     // L3 held for 2 s: back to the menu (Inputs->Poll has just read the pad).
     if (PS5PadLast().buttons & PS5_PAD_L3)

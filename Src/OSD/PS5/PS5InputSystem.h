@@ -38,6 +38,10 @@
 class CPS5InputSystem : public CInputSystem
 {
 public:
+  // The left stick turned round, both ways (L1 in Star Wars Trilogy's duels,
+  // Main.cpp). Every session starts with it off.
+  static void SetLeftStickInverted(bool inverted);
+
   CPS5InputSystem();
   ~CPS5InputSystem() override;
 

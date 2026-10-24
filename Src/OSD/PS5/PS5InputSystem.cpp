@@ -66,6 +66,13 @@ namespace
     return value > 32767 ? 32767 : value;
   }
 
+  bool s_leftStickInverted = false;
+
+  int Inverted(int value)
+  {
+    return s_leftStickInverted ? (value <= -32767 ? 32767 : -value) : value;
+  }
+
   int Trigger(uint8_t v)
   {
     return (int)v * 32767 / 255;
@@ -91,6 +98,11 @@ CPS5InputSystem::CPS5InputSystem() : CInputSystem("ps5")
 
 CPS5InputSystem::~CPS5InputSystem()
 {
+}
+
+void CPS5InputSystem::SetLeftStickInverted(bool inverted)
+{
+  s_leftStickInverted = inverted;
 }
 
 bool CPS5InputSystem::InitializeSystem()
@@ -172,8 +184,8 @@ int CPS5InputSystem::GetJoyAxisValue(int joyNum, int axisNum) const
     return 0;
   switch (axisNum)
   {
-  case AXIS_X:  return Stick(m_lx);
-  case AXIS_Y:  return Stick(m_ly);
+  case AXIS_X:  return Inverted(Stick(m_lx));
+  case AXIS_Y:  return Inverted(Stick(m_ly));
   case AXIS_Z:  return Trigger(m_l2);
   case AXIS_RX: return Stick(m_rx);
   case AXIS_RY: return Stick(m_ry);
