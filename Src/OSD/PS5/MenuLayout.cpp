@@ -258,6 +258,8 @@ namespace
     }
   }
 
+  void Settings(const Ctx &c, const MenuFrame &f);
+
   void Info(const Ctx &c, const MenuFrame &f, float x, float y, const char *label, const std::string &value)
   {
     if (value.empty())
@@ -294,6 +296,14 @@ namespace
       c.dl->AddImage(f.boxart.id, c.P(bx, by), c.P(bx + bw, by + bh), ImVec2(0, 0), ImVec2(1, 1),
         C(255, 255, 255, (int)(255 * f.boxart.alpha)));
     }
+    // The clear logo beside it, on the right.
+    if (f.logo.Valid() && f.boxart.Valid())
+    {
+      const float bw = 520.0f * f.boxart.width / f.boxart.height;
+      const float lx0 = (kMediaX0 + kMediaX1) * 0.5f + bw * 0.5f + 30, lx1 = kMediaX1 - 24;
+      if (lx1 - lx0 > 120)
+        ImageFit(c, f.logo, lx0, kMediaY0 + 140, lx1, kMediaY1 - 140, 1.0f);
+    }
     c.dl->AddRect(c.P(kMediaX0 - 3, kMediaY0 - 3), c.P(kMediaX1 + 3, kMediaY1 + 3), C(0, 204, 253, 60), c.S(12), 0, c.S(9));
     c.dl->AddRect(c.P(kMediaX0, kMediaY0), c.P(kMediaX1, kMediaY1), C(0, 204, 253), c.S(10), 0, c.S(4));
 
@@ -307,34 +317,72 @@ namespace
     const float size = FitSize(c, f.bold, 50, kPanelX1 - 40 - 822, e.title.c_str());
     Text(c, f.bold, size, 822, 744 - size * 0.66f, lime, e.title.c_str(), 2.5f);
 
-    // The details, two columns, and the clear logo in the corner.
+    // The details on the left, the settings on the right.
     char year[16] = "";
     if (e.year)
       snprintf(year, sizeof(year), "%u", e.year);
-    Info(c, f, 760, 800, "Manufacturer", e.manufacturer);
-    Info(c, f, 760, 848, "Released", year);
-    Info(c, f, 760, 896, "ROM set", e.set);
-    Info(c, f, 1230, 800, "Version", e.version);
-    Info(c, f, 1230, 848, "Hardware", e.hardware);
-    Info(c, f, 1230, 896, "Sound", e.sound);
-    if (f.logo.Valid())
-      ImageFit(c, f.logo, 1560, 872, 1830, 980, 1.0f);
+    Info(c, f, 760, 792, "Manufacturer", e.manufacturer);
+    Info(c, f, 760, 836, "Released", year);
+    Info(c, f, 760, 880, "Version", e.version);
+    Info(c, f, 760, 924, "Hardware", e.hardware);
+    Settings(c, f);
+  }
+
+  // The chosen game's settings: a box under the box art, lit while Triangle
+  // has the D-pad on it.
+  void Settings(const Ctx &c, const MenuFrame &f)
+  {
+    const float x0 = 1300, x1 = 1830, y0 = 786, y1 = 976;
+    const float pulse = 0.6f + 0.4f * (float)std::sin(f.time * 5.0);
+    c.dl->AddRectFilled(c.P(x0, y0), c.P(x1, y1), C(6, 16, 30, 200), c.S(8));
+    if (f.settingsFocus)
+      c.dl->AddRect(c.P(x0 - 3, y0 - 3), c.P(x1 + 3, y1 + 3), C(252, 252, 4, (int)(170 * pulse)), c.S(10), 0, c.S(6));
+    c.dl->AddRect(c.P(x0, y0), c.P(x1, y1), f.settingsFocus ? C(252, 252, 4) : C(0, 204, 253, 170), c.S(8), 0, c.S(2.5f));
+    Text(c, f.bold, 24, x0 + 20, y0 + 10, C(0, 204, 253), "GAME SETTINGS", 1.5f);
+    if (!f.settingsFocus)
+    {
+      Button(c, x1 - 120, y0 + 26, '^');
+      Text(c, f.medium, 22, x1 - 96, y0 + 12, C(200, 220, 235), "Open", 1.0f);
+    }
+    for (size_t i = 0; i < f.settings.size(); i++)
+    {
+      const float y = y0 + 52 + (float)i * 44;
+      const bool active = f.settingsFocus && (int)i == f.settingsRow;
+      if (active)
+        c.dl->AddRectFilled(c.P(x0 + 10, y - 4), c.P(x1 - 10, y + 38), C(252, 252, 4, 40), c.S(6));
+      Text(c, f.medium, 27, x0 + 24, y, C(207, 236, 244), f.settings[i].label.c_str(), 1.5f);
+      const char *value = f.settings[i].value.c_str();
+      const float vw = TextWidth(c, f.bold, 27, value);
+      const float vx = x1 - 60 - vw;
+      Text(c, f.bold, 27, vx, y, active ? C(252, 252, 4) : C(209, 234, 55), value, 1.5f);
+      if (active)
+      {
+        const ImU32 arrow = C(252, 252, 4);
+        c.dl->AddTriangleFilled(c.P(vx - 26, y + 18), c.P(vx - 14, y + 9), c.P(vx - 14, y + 27), arrow);
+        c.dl->AddTriangleFilled(c.P(x1 - 34, y + 18), c.P(x1 - 46, y + 9), c.P(x1 - 46, y + 27), arrow);
+      }
+    }
   }
 
   void Footer(const Ctx &c, const MenuFrame &f)
   {
     GlowLine(c, 1016, 50, 1870);
     struct Hint { char symbol; const char *text; };
-    const Hint hints[] = { { 'x', "Start" }, { 'd', "Choose" }, { 0, "L1 / R1  Page" }, { 0, "Hold L3 in a game: back to this menu" } };
-    float x = 0.0f;
-    float widths[4];
-    for (int i = 0; i < 4; i++)
+    static const Hint list[] = { { 'x', "Start" }, { 'd', "Choose" }, { '^', "Settings" }, { 0, "L1 / R1  Page" },
+      { 0, "Hold L3 in a game: back to this menu" } };
+    static const Hint settings[] = { { 'x', "Start" }, { 'd', "Choose" }, { 0, "Left / Right  Change" },
+      { 'o', "Back" } };
+    const Hint *hints = f.settingsFocus ? settings : list;
+    const int count = f.settingsFocus ? 4 : 5;
+    float widths[5];
+    float total = 0.0f;
+    for (int i = 0; i < count; i++)
     {
       widths[i] = (hints[i].symbol ? 46.0f : 0.0f) + TextWidth(c, f.medium, 27, hints[i].text);
-      x += widths[i] + (i < 3 ? 56.0f : 0.0f);
+      total += widths[i] + (i < count - 1 ? 50.0f : 0.0f);
     }
-    x = 960.0f - x * 0.5f;
-    for (int i = 0; i < 4; i++)
+    float x = 960.0f - total * 0.5f;
+    for (int i = 0; i < count; i++)
     {
       if (hints[i].symbol)
       {
@@ -343,7 +391,7 @@ namespace
       }
       else
         Text(c, f.medium, 27, x, 1031, C(235, 240, 255), hints[i].text);
-      x += widths[i] + 56.0f;
+      x += widths[i] + 50.0f;
     }
   }
 }

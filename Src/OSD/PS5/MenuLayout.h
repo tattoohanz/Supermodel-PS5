@@ -49,6 +49,13 @@ struct MenuEntry
   MenuImage marquee;
 };
 
+// One of the chosen game's settings (MenuSettings.h), as shown.
+struct MenuSettingRow
+{
+  std::string label;   // "Picture"
+  std::string value;   // "16:9"
+};
+
 struct MenuFrame
 {
   const std::vector<MenuEntry> *games = nullptr;
@@ -62,6 +69,9 @@ struct MenuFrame
   ImFont *bold = nullptr;
   ImFont *medium = nullptr;
   const char *message = nullptr;  // shown in the panel instead of a game (no games)
+  std::vector<MenuSettingRow> settings;  // the chosen game's
+  bool settingsFocus = false;            // Triangle: the D-pad works on the settings
+  int settingsRow = 0;
 };
 
 void MenuDraw(ImDrawList *draw, const MenuFrame &frame, ImVec2 origin, float scale);

@@ -98,6 +98,8 @@ static std::string s_gameXMLFilePath;
 static const std::string s_configFilePath = PS5_APP_DIR "/Config/Supermodel.ini";
 static const char s_autobootPath[] = PS5_APP_DIR "/autoboot.txt";
 static const char s_lastGamePath[] = PS5_APP_DIR "/Config/menu-last.txt";
+static const char s_menuSettingsPath[] = PS5_APP_DIR "/Config/MenuSettings.ini";
+static CMenuSettings s_menuSettings;
 static const char s_defaultGame[] = "srally2";
 
 static Util::Config::Node s_runtime_config("Global");
@@ -506,6 +508,32 @@ static std::vector<MenuGame> ScanGames(const GameLoader &loader)
   return games;
 }
 
+/*
+ * For each game, what it gets for the menu settings' keys from the defaults
+ * and Supermodel.ini (read again each time, as it may have been edited).
+ */
+static void FillMenuBase(std::vector<MenuGame> &games)
+{
+  Util::Config::Node fileConfig("Global");
+  if (FileExists(s_configFilePath))
+    Util::Config::FromINIFile(&fileConfig, s_configFilePath);
+  const Util::Config::Node defaults = PS5DefaultConfig();
+  for (MenuGame &g : games)
+  {
+    const Util::Config::Node *section = fileConfig.TryGet(g.entry.set);
+    for (const MenuSettingDef &def : MenuSettingDefs())
+      for (const MenuSettingChoice &choice : def.choices)
+        for (const auto &kv : choice.keys)
+        {
+          const Util::Config::Node *n = section ? section->TryGet(kv.first) : nullptr;
+          if (!n)
+            n = fileConfig.TryGet(kv.first);
+          const bool on = n ? n->ValueAs<bool>() : defaults[kv.first].ValueAsDefault<bool>(false);
+          g.base[kv.first] = on ? "1" : "0";
+        }
+  }
+}
+
 static int FindGame(const std::vector<MenuGame> &games, const std::string &nameOrPath)
 {
   for (size_t i = 0; i < games.size(); i++)
@@ -578,6 +606,14 @@ static int RunSession(const GameLoader &loader, const MenuGame &choice)
   else
     s_runtime_config = globalConfig;
   InfoLog("Game: %s (%s), stepping %s.", game.title.c_str(), game.name.c_str(), game.stepping.c_str());
+  // The menu's settings for the game (MenuSettings.ini), over everything.
+  if (const auto *menu = s_menuSettings.Section(game.name))
+    for (const auto &kv : *menu)
+    {
+      s_runtime_config.Set<std::string>(kv.first, kv.second);
+      InfoLog("Config: %s = %s (menu settings).", kv.first.c_str(), kv.second.c_str());
+    }
+  InfoLog("Video: picture %s.", s_runtime_config["WideScreen"].ValueAs<bool>() ? "16:9 (WideScreen, WideBackground as set)" : "4:3");
   ServiceTestForGame(game, fileConfig, gameSection);
   {
     unsigned mhz = s_runtime_config["PowerPCFrequency"].ValueAsDefault<unsigned>(0);
@@ -784,6 +820,7 @@ static int RunApp()
   PS5PadRead();  // opens the pad, for the menu and every game
 
   std::vector<MenuGame> games = ScanGames(loader);
+  s_menuSettings.Load(s_menuSettingsPath);
   CPS5Menu menu;
   const bool haveMenu = menu.Init(*s_vkContext);
   if (!haveMenu)
@@ -812,7 +849,10 @@ static int RunApp()
     if (choice < 0)
     {
       if (haveMenu)
-        choice = menu.Run(games, selected);
+      {
+        FillMenuBase(games);
+        choice = menu.Run(games, selected, s_menuSettings);
+      }
       else
         choice = games.empty() ? -1 : selected;
       if (choice < 0)

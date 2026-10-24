@@ -157,6 +157,35 @@ namespace
   };
 }
 
+// "1"/"true"/"yes"/"on" as "1", anything else as "0" (the settings are all
+// switches so far).
+static std::string Switch(const std::string &value)
+{
+  std::string v;
+  for (char ch : value)
+    v += (char)tolower((unsigned char)ch);
+  return (v == "1" || v == "true" || v == "yes" || v == "on") ? "1" : "0";
+}
+
+// Which of a setting's choices the game has: by the first key of each.
+static int ChoiceOf(const MenuSettingDef &def, const MenuGame &game, const CMenuSettings &settings)
+{
+  const char *key = def.choices[0].keys[0].first;
+  std::string value;
+  if (const std::string *set = settings.Get(game.entry.set, key))
+    value = *set;
+  else
+  {
+    auto it = game.base.find(key);
+    if (it != game.base.end())
+      value = it->second;
+  }
+  for (size_t i = 0; i < def.choices.size(); i++)
+    if (Switch(def.choices[i].keys[0].second) == Switch(value))
+      return (int)i;
+  return 0;
+}
+
 void MenuFindArt(MenuGame &game)
 {
   std::vector<std::string> names;
@@ -455,8 +484,11 @@ void CPS5Menu::ReleaseTextures()
   m->loader.Clear();
 }
 
-int CPS5Menu::Run(const std::vector<MenuGame> &games, int selected)
+int CPS5Menu::Run(const std::vector<MenuGame> &games, int selected, CMenuSettings &settings)
 {
+  const std::vector<MenuSettingDef> &defs = MenuSettingDefs();
+  bool settingsFocus = false;
+  int settingsRow = 0;
   ImGui::SetCurrentContext(m->imgui);
   ImGuiIO &io = ImGui::GetIO();
   const int n = (int)games.size();
@@ -487,9 +519,14 @@ int CPS5Menu::Run(const std::vector<MenuGame> &games, int selected)
       b |= PS5_PAD_UP;
     if (pad.valid && pad.ly > 208)
       b |= PS5_PAD_DOWN;
+    if (pad.valid && pad.lx < 48)
+      b |= PS5_PAD_LEFT;
+    if (pad.valid && pad.lx > 208)
+      b |= PS5_PAD_RIGHT;
     if (waitRelease)
     {
-      if ((b & (PS5_PAD_UP | PS5_PAD_DOWN | PS5_PAD_L1 | PS5_PAD_R1 | PS5_PAD_CROSS | PS5_PAD_OPTIONS | PS5_PAD_L3)) == 0)
+      if ((b & (PS5_PAD_UP | PS5_PAD_DOWN | PS5_PAD_LEFT | PS5_PAD_RIGHT | PS5_PAD_L1 | PS5_PAD_R1 | PS5_PAD_CROSS |
+            PS5_PAD_OPTIONS | PS5_PAD_L3 | PS5_PAD_TRIANGLE | PS5_PAD_CIRCLE)) == 0)
         waitRelease = false;
       b = 0;
     }
@@ -511,7 +548,33 @@ int CPS5Menu::Run(const std::vector<MenuGame> &games, int selected)
         nextRepeat = now + (now - holdStart > 1.5 ? 0.045 : 0.09);
       }
     }
-    if (n > 0)
+    if (n > 0 && (pressed & PS5_PAD_TRIANGLE) && !defs.empty())
+      settingsFocus = !settingsFocus;
+    else if (settingsFocus && (pressed & PS5_PAD_CIRCLE))
+      settingsFocus = false;
+    if (n > 0 && settingsFocus)
+    {
+      const int rows = (int)defs.size();
+      if (move)
+        settingsRow = (settingsRow + move + rows) % rows;
+      const int change = (pressed & PS5_PAD_LEFT) ? -1 : (pressed & PS5_PAD_RIGHT) ? 1 : 0;
+      if (change)
+      {
+        const MenuSettingDef &def = defs[settingsRow];
+        const MenuGame &g = games[selected];
+        const int count = (int)def.choices.size();
+        const int choice = (ChoiceOf(def, g, settings) + change + count) % count;
+        std::string keys;
+        for (const auto &kv : def.choices[choice].keys)
+        {
+          settings.Set(g.entry.set, kv.first, kv.second);
+          keys += std::string(keys.empty() ? "" : ", ") + kv.first + "=" + kv.second;
+        }
+        settings.Save();
+        InfoLog("Menu: %s: %s %s (%s).", g.entry.set.c_str(), def.label, def.choices[choice].label, keys.c_str());
+      }
+    }
+    else if (n > 0)
     {
       if (move)
         selected = (selected + move + n) % n;
@@ -546,9 +609,13 @@ int CPS5Menu::Run(const std::vector<MenuGame> &games, int selected)
     frame.bold = m->bold;
     frame.medium = m->medium;
     frame.headerLogo = m->Get(m->headerLogo, true, true, now);
+    frame.settingsFocus = settingsFocus;
+    frame.settingsRow = settingsRow;
     if (n > 0)
     {
       const MenuGame &g = games[selected];
+      for (const MenuSettingDef &def : defs)
+        frame.settings.push_back({ def.label, def.choices[ChoiceOf(def, g, settings)].label });
       frame.boxart = m->Get(g.boxart, false, true, now);
       frame.backdrop = m->Get(g.backdrop, false, true, now);
       frame.logo = m->Get(g.logo, false, true, now);

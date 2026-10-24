@@ -17,13 +17,18 @@
  * title's Assets/Menu, made by ps5/prepare-menu-art.sh), drawn by
  * MenuLayout.cpp with ImGui on the app's Vulkan context. The D-pad (or the
  * left stick) chooses, L1/R1 move a page, Cross or Options starts the game.
+ * Triangle puts the D-pad on the game's settings (MenuSettings.h): up and
+ * down choose one, left and right change it (saved at once), Circle or
+ * Triangle goes back to the list.
  */
 
 #ifndef INCLUDED_PS5_MENU_H
 #define INCLUDED_PS5_MENU_H
 
 #include "MenuLayout.h"
+#include "MenuSettings.h"
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -36,6 +41,10 @@ struct MenuGame
   std::string zipPath;
   // The art's files, found once (MenuFindArt); empty when there is none.
   std::string marquee, boxart, backdrop, logo;
+  // What the game gets for each setting's keys without the menu's settings
+  // (the defaults and Supermodel.ini), "1" or "0": what the menu shows when
+  // it has not set one itself.
+  std::map<std::string, std::string> base;
 };
 
 // Fills in the art's paths: the set's own, else its parent's, else an alias's.
@@ -52,7 +61,7 @@ public:
 
   // Shows the menu until a game is started: its index in games, or -1 when
   // Cross was pressed with no games (to look again).
-  int Run(const std::vector<MenuGame> &games, int selected);
+  int Run(const std::vector<MenuGame> &games, int selected, CMenuSettings &settings);
 
   // Frees the art's images (waits for the GPU), for a game to have the memory.
   void ReleaseTextures();

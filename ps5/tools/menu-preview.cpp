@@ -247,6 +247,8 @@ int main(int argc, char **argv)
   f.bold = bold;
   f.medium = medium;
   f.headerLogo = Load(dir + "/Assets/Menu/header/logo.png");
+  f.settings.push_back({ "Picture", "16:9" });
+  f.settingsFocus = getenv("PREVIEW_SETTINGS") != nullptr;
   if (!games.empty())
   {
     f.boxart = Load(dir + "/Assets/Menu/boxart/" + selectedSet + ".png");
