@@ -25,8 +25,7 @@
  * RunGameSession() and Supermodel(): one game, started straight from
  * /data/supermodel/roms/, on the Vulkan renderer, presented on VideoOut.
  *
- * First step: picture only. No sound output and no controls yet (the game
- * runs its attract mode).
+ * The DualSense is joystick 1 (PS5InputSystem.h); no sound output yet.
  *
  * The game is srally2 unless /data/supermodel/autoboot.txt names another ROM
  * set (its first line: a set name, or a full path to a .zip).
@@ -110,6 +109,19 @@ static Util::Config::Node PS5DefaultConfig()
   config.Set("FullScreen", true);
   config.Set("HighPriority", false);
   config.Set<std::string>("Outputs", "none");
+
+  // The DualSense (PS5InputSystem.h has the numbering). The desktop defaults
+  // already put Start on Options, Coin on Create, steering on the left stick
+  // and the D-pad, shifting on R1 (up) and L1 (down), neutral on Cross and the
+  // view change on D-pad up. On the PS5: R2 accelerates (or Square), L2
+  // brakes, Circle is the handbrake (or D-pad down), Triangle changes the
+  // view as well, R3 is Service and the touchpad click is Test.
+  config.Set<std::string>("InputAccelerator", "JOY1_RZAXIS,JOY1_BUTTON3");
+  config.Set<std::string>("InputBrake", "JOY1_ZAXIS");
+  config.Set<std::string>("InputHandBrake", "JOY1_BUTTON2,JOY1_POV1_DOWN");
+  config.Set<std::string>("InputViewChange", "JOY1_BUTTON4,JOY1_POV1_UP");
+  config.Set<std::string>("InputServiceA", "JOY1_BUTTON10");
+  config.Set<std::string>("InputTestA", "JOY1_BUTTON11");
   return config;
 }
 
@@ -391,7 +403,7 @@ static int RunSession()
   if (Result::OKAY != OpenAudio(s_runtime_config))
     return 1;
 
-  // Inputs (none yet: the attract mode runs).
+  // Inputs: the DualSense.
   std::shared_ptr<CInputSystem> inputSystem = std::make_shared<CPS5InputSystem>();
   CInputs *Inputs = new CInputs(inputSystem);
   if (!Inputs->Initialize())
