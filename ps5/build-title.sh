@@ -105,7 +105,7 @@ Src/Network/NetBoard.cpp Src/Network/SimNetBoard.cpp
 Src/OSD/PS5/Main.cpp Src/OSD/PS5/PS5App.cpp Src/OSD/PS5/Display.cpp Src/OSD/PS5/Thread.cpp
 Src/OSD/PS5/AudioOut.cpp Src/OSD/PS5/FileSystemPath.cpp Src/OSD/PS5/NetLoopback.cpp
 Src/OSD/PS5/PS5InputSystem.cpp Src/OSD/PS5/GLStubs.cpp Src/OSD/PS5/Cost.cpp
-Src/OSD/PS5/PS5Pad.cpp Src/OSD/PS5/Menu.cpp Src/OSD/PS5/MenuLayout.cpp
+Src/OSD/PS5/PS5Pad.cpp Src/OSD/PS5/PS5Mouse.cpp Src/OSD/PS5/Menu.cpp Src/OSD/PS5/MenuLayout.cpp
 Src/Pkgs/imgui/imgui.cpp Src/Pkgs/imgui/imgui_draw.cpp Src/Pkgs/imgui/imgui_tables.cpp
 Src/Pkgs/imgui/imgui_widgets.cpp Src/Pkgs/imgui/imgui_impl_vulkan.cpp
 ps5/compat/libc_missing.c

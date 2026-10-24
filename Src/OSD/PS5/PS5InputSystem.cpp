@@ -18,10 +18,12 @@
  */
 
 #include "PS5InputSystem.h"
+#include "PS5Mouse.h"
 #include "PS5Pad.h"
 #include "Supermodel.h"
 #include "Inputs/Input.h"
 
+#include <algorithm>
 #include <cstring>
 
 namespace
@@ -115,6 +117,26 @@ bool CPS5InputSystem::InitializeSystem()
 
 bool CPS5InputSystem::Poll()
 {
+  // The mouse: its movement moves the pointer over the game's picture.
+  const PS5MouseInput mouse = PS5MouseRead();
+  m_mouseOpen = mouse.open;
+  m_mouseButtons = mouse.buttons;
+  m_mouseWheel = mouse.wheel;
+  if (m_dispW > 0 && m_dispH > 0)
+  {
+    const float x0 = (float)m_dispX, y0 = (float)m_dispY;
+    const float x1 = x0 + (float)m_dispW - 1.0f, y1 = y0 + (float)m_dispH - 1.0f;
+    if (!m_mouseCentred)
+    {
+      m_mouseCentred = true;
+      m_mouseX = x0 + m_dispW * 0.5f;
+      m_mouseY = y0 + m_dispH * 0.5f;
+    }
+    const float k = (float)m_dispW / 1000.0f;  // 1000 counts across the picture
+    m_mouseX = std::min(x1, std::max(x0, m_mouseX + mouse.dx * k));
+    m_mouseY = std::min(y1, std::max(y0, m_mouseY + mouse.dy * k));
+  }
+
   const PS5PadState d = PS5PadRead();
   m_stateValid = d.valid;
   m_buttons = d.buttons;
@@ -160,7 +182,7 @@ bool CPS5InputSystem::Poll()
 }
 
 int CPS5InputSystem::GetNumKeyboards() const { return 0; }
-int CPS5InputSystem::GetNumMice() const { return 0; }
+int CPS5InputSystem::GetNumMice() const { return ANY_MOUSE; }
 int CPS5InputSystem::GetNumJoysticks() const { return 1; }
 const KeyDetails *CPS5InputSystem::GetKeyDetails(int) { return nullptr; }
 const MouseDetails *CPS5InputSystem::GetMouseDetails(int) { return nullptr; }
@@ -174,9 +196,29 @@ void CPS5InputSystem::SetMouseVisibility(bool) {}
 int CPS5InputSystem::GetKeyIndex(const char *) { return -1; }
 const char *CPS5InputSystem::GetKeyName(int) { return nullptr; }
 bool CPS5InputSystem::IsKeyPressed(int, int) const { return false; }
-int CPS5InputSystem::GetMouseAxisValue(int, int) const { return 0; }
-int CPS5InputSystem::GetMouseWheelDir(int) const { return 0; }
-bool CPS5InputSystem::IsMouseButPressed(int, int) const { return false; }
+int CPS5InputSystem::GetMouseAxisValue(int, int axisNum) const
+{
+  // Turned round with the left stick (L1): mirrored about the centre.
+  const float cx = m_dispX + m_dispW * 0.5f, cy = m_dispY + m_dispH * 0.5f;
+  switch (axisNum)
+  {
+  case AXIS_X: return (int)(s_leftStickInverted ? 2.0f * cx - m_mouseX : m_mouseX);
+  case AXIS_Y: return (int)(s_leftStickInverted ? 2.0f * cy - m_mouseY : m_mouseY);
+  default:     return 0;
+  }
+}
+
+int CPS5InputSystem::GetMouseWheelDir(int) const
+{
+  return m_mouseWheel > 0 ? 1 : m_mouseWheel < 0 ? -1 : 0;
+}
+
+bool CPS5InputSystem::IsMouseButPressed(int, int butNum) const
+{
+  // Supermodel's numbering: left, middle, right, side 1, side 2.
+  static const uint32_t bits[] = { PS5_MOUSE_LEFT, PS5_MOUSE_MIDDLE, PS5_MOUSE_RIGHT, PS5_MOUSE_SIDE1, PS5_MOUSE_SIDE2 };
+  return butNum >= 0 && butNum < 5 && (m_mouseButtons & bits[butNum]) != 0;
+}
 
 int CPS5InputSystem::GetJoyAxisValue(int joyNum, int axisNum) const
 {

@@ -25,7 +25,11 @@
  *   JOY1_XAXIS/YAXIS left stick, RXAXIS/RYAXIS right stick (down and right
  *   positive), ZAXIS L2 and RZAXIS R2 (0 released, 32767 fully pressed).
  *
- * No keyboard or mouse. Force feedback comes later.
+ * A mouse (PS5Mouse.h), any one, as MOUSE_...: its movement moves a pointer
+ * kept on the game's picture, 1000 counts across it, whose position is
+ * MOUSE_XAXIS/YAXIS (the centre being the middle of an axis, as on the
+ * desktop); buttons left, middle, right, side 1 and 2. No keyboard. Force
+ * feedback comes later.
  */
 
 #ifndef INCLUDED_PS5INPUTSYSTEM_H
@@ -70,6 +74,11 @@ protected:
 private:
   JoyDetails m_joyDetails;
   bool m_stateValid = false;
+  bool m_mouseOpen = false;
+  bool m_mouseCentred = false;
+  float m_mouseX = 0.0f, m_mouseY = 0.0f;  // display pixels
+  int m_mouseWheel = 0;
+  uint32_t m_mouseButtons = 0;
   uint32_t m_buttons = 0;     // libScePad's button bits
   uint8_t m_lx = 128, m_ly = 128, m_rx = 128, m_ry = 128, m_l2 = 0, m_r2 = 0;
   uint32_t m_buttonsLogged = 0;

@@ -61,4 +61,7 @@ PS5PadState PS5PadRead();
 // The state the last PS5PadRead() returned.
 const PS5PadState &PS5PadLast();
 
+// The user who started the app (-1 until the first read finds one).
+int32_t PS5PadUser();
+
 #endif  // INCLUDED_PS5PAD_H

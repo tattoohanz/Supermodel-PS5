@@ -109,3 +109,8 @@ const PS5PadState &PS5PadLast()
 {
   return s_last;
 }
+
+int32_t PS5PadUser()
+{
+  return s_user;
+}
