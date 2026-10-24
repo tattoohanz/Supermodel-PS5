@@ -240,8 +240,12 @@ cp "$param" "$app/sce_sys/param.json"
 llvm-readelf-18 -r --wide "$build/llvm-pie.elf" |
     awk '$3 == "R_X86_64_GLOB_DAT" || $3 == "R_X86_64_JUMP_SLOT" { print $1, $5 }' \
     > "$app/imports.txt"
+# The title's art: ps5/prepare-art.sh's (ps5/assets/sce_sys, not in git), else
+# the placeholder art.
 for asset in icon0.png pic0.dds pic1.dds; do
-    if [[ -f $here/sce_sys/$asset ]]; then
+    if [[ -f $here/assets/sce_sys/$asset ]]; then
+        cp "$here/assets/sce_sys/$asset" "$app/sce_sys/$asset"
+    elif [[ -f $here/sce_sys/$asset ]]; then
         cp "$here/sce_sys/$asset" "$app/sce_sys/$asset"
     elif [[ -f $vk/sce_sys/$asset ]]; then
         cp "$vk/sce_sys/$asset" "$app/sce_sys/$asset" # placeholder art
