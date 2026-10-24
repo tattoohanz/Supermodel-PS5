@@ -106,6 +106,11 @@ static Util::Config::Node PS5DefaultConfig()
   // sceAudioOut is stereo (AudioOut.cpp); the four Model 3 channels are
   // mixed down by Audio.cpp as on a stereo desktop.
   config.Set("NbSoundChannels", 2);
+  // 100 ms of sound buffer rather than the desktop's 400: the sound board
+  // runs from the audio callback, so the buffer needs no room for frame-loop
+  // stalls, and 400 ms was a noticeable delay (no under-runs at 10 on the
+  // console).
+  config.Set("AudioLatency", 10);
   config.Set("Vulkan3DEngine", true);
   config.Set("FullScreen", true);
   config.Set("HighPriority", false);
