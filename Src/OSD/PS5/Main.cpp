@@ -111,15 +111,17 @@ static Util::Config::Node PS5DefaultConfig()
   config.Set<std::string>("Outputs", "none");
 
   // The DualSense (PS5InputSystem.h has the numbering). The desktop defaults
-  // already put Start on Options, Coin on Create, steering on the left stick
-  // and the D-pad, shifting on R1 (up) and L1 (down), neutral on Cross and the
-  // view change on D-pad up. On the PS5: R2 accelerates (or Square), L2
-  // brakes, Circle is the handbrake (or D-pad down), Triangle changes the
-  // view as well, R3 is Service and the touchpad click is Test.
+  // already put Start on Options, steering on the left stick and the D-pad,
+  // shifting on R1 (up) and L1 (down) and neutral on Cross. On the PS5: Coin
+  // on D-pad up, as in XPSemu Chihiro (Create opens the console's capture
+  // menu), R2 accelerates (or Square), L2 brakes, Circle is the handbrake (or
+  // D-pad down), Triangle changes the view, R3 is Service and the touchpad
+  // click is Test.
+  config.Set<std::string>("InputCoin1", "JOY1_POV1_UP");
   config.Set<std::string>("InputAccelerator", "JOY1_RZAXIS,JOY1_BUTTON3");
   config.Set<std::string>("InputBrake", "JOY1_ZAXIS");
   config.Set<std::string>("InputHandBrake", "JOY1_BUTTON2,JOY1_POV1_DOWN");
-  config.Set<std::string>("InputViewChange", "JOY1_BUTTON4,JOY1_POV1_UP");
+  config.Set<std::string>("InputViewChange", "JOY1_BUTTON4");
   config.Set<std::string>("InputServiceA", "JOY1_BUTTON10");
   config.Set<std::string>("InputTestA", "JOY1_BUTTON11");
   return config;
