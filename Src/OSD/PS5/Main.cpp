@@ -118,8 +118,10 @@ static Util::Config::Node PS5DefaultConfig()
   // D-pad down), Triangle changes the view, R3 is Service and the touchpad
   // click is Test.
   config.Set<std::string>("InputCoin1", "JOY1_POV1_UP");
-  config.Set<std::string>("InputAccelerator", "JOY1_RZAXIS,JOY1_BUTTON3");
-  config.Set<std::string>("InputBrake", "JOY1_ZAXIS");
+  // The pedals are analog (not axis) inputs, which take only half axes: the
+  // positive half of a trigger is all of it (0 released, 32767 pressed).
+  config.Set<std::string>("InputAccelerator", "JOY1_RZAXIS_POS,JOY1_BUTTON3");
+  config.Set<std::string>("InputBrake", "JOY1_ZAXIS_POS");
   config.Set<std::string>("InputHandBrake", "JOY1_BUTTON2,JOY1_POV1_DOWN");
   config.Set<std::string>("InputViewChange", "JOY1_BUTTON4");
   config.Set<std::string>("InputServiceA", "JOY1_BUTTON10");
