@@ -60,7 +60,7 @@ public:
 	uint32_t SampleCount() const { return m_sampleBits; }
 
 private:
-	bool CreatePipeline(bool translucent, bool overlay);
+	bool CreatePipeline(bool translucent, bool overlay, bool layered = false);
 	bool CreateFogPipeline();
 	bool EnsureTargets();
 	void DestroyTargets();
@@ -91,6 +91,25 @@ private:
 	VkPipeline m_translucent = VK_NULL_HANDLE;
 	VkPipeline m_overlayOpaque = VK_NULL_HANDLE;
 	VkPipeline m_overlayTranslucent = VK_NULL_HANDLE;
+	/*
+	 * Layered polygons (the polygon header's "layered" bit: car shadows in Sega Rally 2, for one).
+	 *
+	 * New3D draws them with a stencil test that lets only the first layered polygon reach each pixel
+	 * (R3DShader::SetMeshUniforms): EQUAL 0 on the low seven bits, incremented whether or not the
+	 * depth test passes. A shadow is several overlapping translucent polygons, so without the test
+	 * every overlap darkens again and the shadow comes out as a black, jagged shape. These pipelines
+	 * are the same four with that test; they need a depth format with stencil (m_stencil), and the
+	 * LayeredStencil setting can turn them off to compare.
+	 */
+	VkPipeline m_opaqueLayered = VK_NULL_HANDLE;
+	VkPipeline m_translucentLayered = VK_NULL_HANDLE;
+	VkPipeline m_overlayOpaqueLayered = VK_NULL_HANDLE;
+	VkPipeline m_overlayTranslucentLayered = VK_NULL_HANDLE;
+	VkFormat m_depthFormat = VK_FORMAT_D32_SFLOAT;
+	bool m_stencil = false;
+	uint64_t m_layeredDraws = 0;
+	VkImageAspectFlags DepthAspect() const { return m_stencil ? (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT) : VK_IMAGE_ASPECT_DEPTH_BIT; }
+	VkImageLayout DepthAttachmentLayout() const { return m_stencil ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL; }
 	VkShaderModule m_vert = VK_NULL_HANDLE;
 	VkShaderModule m_frag = VK_NULL_HANDLE;
 

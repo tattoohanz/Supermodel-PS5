@@ -51,6 +51,21 @@ CVulkan3D::CVulkan3D(const Util::Config::Node& config, const std::string& gameNa
 	m_wide = config["WideScreen"].ValueAs<bool>();
 	m_noWhiteFlash = config["NoWhiteFlash"].ValueAs<bool>();
 
+	// Depth with stencil, for the layered polygons (see m_opaqueLayered), when the driver has it.
+	if (config["LayeredStencil"].ValueAsDefault<bool>(true) && context.PhysicalDevice() != VK_NULL_HANDLE)
+	{
+		VkFormatProperties props = {};
+		vkGetPhysicalDeviceFormatProperties(context.PhysicalDevice(), VK_FORMAT_D32_SFLOAT_S8_UINT, &props);
+		if (props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)
+		{
+			m_depthFormat = VK_FORMAT_D32_SFLOAT_S8_UINT;
+			m_stencil = true;
+		}
+	}
+	InfoLog("Vulkan3D: layered polygons %s.", m_stencil ? "use the stencil test (depth D32_SFLOAT_S8_UINT)"
+		: (config["LayeredStencil"].ValueAsDefault<bool>(true) ? "are drawn without a stencil (the driver has no D32_SFLOAT_S8_UINT)"
+		: "are drawn without a stencil (LayeredStencil off)"));
+
 	// Hardware MSAA level: 1 (or 0) disables it, 2, 4 and 8 select that many samples. Only powers
 	// of two between 1 and 8 are accepted; anything else falls back to no multisampling.
 	const int msaa = config["MSAA"].ValueAsDefault<int>(0);
@@ -72,7 +87,7 @@ CVulkan3D::CVulkan3D(const Util::Config::Node& config, const std::string& gameNa
 			vkGetPhysicalDeviceImageFormatProperties(physical, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_TYPE_2D,
 				VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT, 0, &colorProps) == VK_SUCCESS;
 		const bool depthOk = physical != VK_NULL_HANDLE &&
-			vkGetPhysicalDeviceImageFormatProperties(physical, VK_FORMAT_D32_SFLOAT, VK_IMAGE_TYPE_2D,
+			vkGetPhysicalDeviceImageFormatProperties(physical, m_depthFormat, VK_IMAGE_TYPE_2D,
 				VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, 0, &depthProps) == VK_SUCCESS;
 		const VkSampleCountFlagBits wanted = (VkSampleCountFlagBits)msaa;
 		const bool colorSupports = colorOk && (colorProps.sampleCounts & wanted) != 0;
@@ -124,6 +139,9 @@ CVulkan3D::~CVulkan3D()
 		vkDestroyPipeline(device, m_overlayOpaque, nullptr);
 	if (m_overlayTranslucent)
 		vkDestroyPipeline(device, m_overlayTranslucent, nullptr);
+	for (VkPipeline pipeline : { m_opaqueLayered, m_translucentLayered, m_overlayOpaqueLayered, m_overlayTranslucentLayered })
+		if (pipeline)
+			vkDestroyPipeline(device, pipeline, nullptr);
 	if (m_layout)
 		vkDestroyPipelineLayout(device, m_layout, nullptr);
 	if (m_fog)
@@ -267,6 +285,12 @@ Result CVulkan3D::Init(unsigned xOffset, unsigned yOffset, unsigned xRes, unsign
 		ErrorLog("Vulkan3D: graphics pipeline creation failed.");
 		return Result::FAIL;
 	}
+	if (m_stencil && (!CreatePipeline(false, false, true) || !CreatePipeline(true, false, true) ||
+	    !CreatePipeline(false, true, true) || !CreatePipeline(true, true, true)))
+	{
+		ErrorLog("Vulkan3D: layered (stencil) pipeline creation failed.");
+		return Result::FAIL;
+	}
 	if (!CreateFogPipeline())
 	{
 		ErrorLog("Vulkan3D: fog pipeline creation failed.");
@@ -276,7 +300,7 @@ Result CVulkan3D::Init(unsigned xOffset, unsigned yOffset, unsigned xRes, unsign
 	return Result::OKAY;
 }
 
-bool CVulkan3D::CreatePipeline(bool translucent, bool overlay)
+bool CVulkan3D::CreatePipeline(bool translucent, bool overlay, bool layered)
 {
 	VkPipelineShaderStageCreateInfo stages[2] = {};
 	stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -340,6 +364,22 @@ bool CVulkan3D::CreatePipeline(bool translucent, bool overlay)
 	// let the dark far side of the mouth cover the snout as a black patch.
 	depth.depthWriteEnable = VK_TRUE;
 	depth.depthCompareOp = overlay ? VK_COMPARE_OP_GREATER_OR_EQUAL : VK_COMPARE_OP_GREATER;
+	if (layered)
+	{
+		// New3D: glStencilFunc(GL_EQUAL, 0, 0x7F), glStencilOp(GL_KEEP, GL_INCR, GL_INCR),
+		// glStencilMask(0x7F). Only the first layered polygon at a pixel is drawn.
+		VkStencilOpState op = {};
+		op.failOp = VK_STENCIL_OP_KEEP;
+		op.passOp = VK_STENCIL_OP_INCREMENT_AND_CLAMP;
+		op.depthFailOp = VK_STENCIL_OP_INCREMENT_AND_CLAMP;
+		op.compareOp = VK_COMPARE_OP_EQUAL;
+		op.compareMask = 0x7F;
+		op.writeMask = 0x7F;
+		op.reference = 0;
+		depth.stencilTestEnable = VK_TRUE;
+		depth.front = op;
+		depth.back = op;
+	}
 	VkPipelineColorBlendAttachmentState blendAtt = {};
 	blendAtt.blendEnable = translucent ? VK_TRUE : VK_FALSE;
 	blendAtt.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
@@ -360,12 +400,12 @@ bool CVulkan3D::CreatePipeline(bool translucent, bool overlay)
 	dynamic.pDynamicStates = dynamics;
 
 	VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
-	VkFormat depthFormat = VK_FORMAT_D32_SFLOAT;
 	VkPipelineRenderingCreateInfo rendering = {};
 	rendering.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
 	rendering.colorAttachmentCount = 1;
 	rendering.pColorAttachmentFormats = &colorFormat;
-	rendering.depthAttachmentFormat = depthFormat;
+	rendering.depthAttachmentFormat = m_depthFormat;
+	rendering.stencilAttachmentFormat = m_stencil ? m_depthFormat : VK_FORMAT_UNDEFINED;
 
 	VkGraphicsPipelineCreateInfo info = {};
 	info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -382,13 +422,20 @@ bool CVulkan3D::CreatePipeline(bool translucent, bool overlay)
 	info.pDynamicState = &dynamic;
 	info.layout = m_layout;
 	VkPipeline* dest;
-	if (overlay)
+	if (layered)
+	{
+		if (overlay)
+			dest = translucent ? &m_overlayTranslucentLayered : &m_overlayOpaqueLayered;
+		else
+			dest = translucent ? &m_translucentLayered : &m_opaqueLayered;
+	}
+	else if (overlay)
 		dest = translucent ? &m_overlayTranslucent : &m_overlayOpaque;
 	else
 		dest = translucent ? &m_translucent : &m_opaque;
 	VkResult pipeResult = vkCreateGraphicsPipelines(m_context.Device(), VK_NULL_HANDLE, 1, &info, nullptr, dest);
 	if (pipeResult != VK_SUCCESS)
-		ErrorLog("Vulkan3D: vkCreateGraphicsPipelines (%s, %s) failed (%d).", translucent ? "translucent" : "opaque", overlay ? "overlay" : "base", (int)pipeResult);
+		ErrorLog("Vulkan3D: vkCreateGraphicsPipelines (%s, %s%s) failed (%d).", translucent ? "translucent" : "opaque", overlay ? "overlay" : "base", layered ? ", layered" : "", (int)pipeResult);
 	return pipeResult == VK_SUCCESS;
 }
 
@@ -468,12 +515,12 @@ bool CVulkan3D::CreateFogPipeline()
 	dynamic.pDynamicStates = dynamics;
 
 	VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
-	VkFormat depthFormat = VK_FORMAT_D32_SFLOAT;
 	VkPipelineRenderingCreateInfo rendering = {};
 	rendering.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
 	rendering.colorAttachmentCount = 1;
 	rendering.pColorAttachmentFormats = &colorFormat;
-	rendering.depthAttachmentFormat = depthFormat;
+	rendering.depthAttachmentFormat = m_depthFormat;
+	rendering.stencilAttachmentFormat = m_stencil ? m_depthFormat : VK_FORMAT_UNDEFINED;
 
 	VkGraphicsPipelineCreateInfo info = {};
 	info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -721,10 +768,10 @@ bool CVulkan3D::EnsureTargets()
 	const VkImageUsageFlags depthUsage = (m_samples > VK_SAMPLE_COUNT_1_BIT)
 		? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
 		: (VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
-	if (!m_context.Memory().CreateImage(extent.width, extent.height, 1, VK_FORMAT_D32_SFLOAT,
+	if (!m_context.Memory().CreateImage(extent.width, extent.height, 1, m_depthFormat,
 			depthUsage, m_depth, (uint32_t)m_samples))
 		return false;
-	m_depth.view = m_context.CreateView(m_depth.image, VK_FORMAT_D32_SFLOAT, VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1);
+	m_depth.view = m_context.CreateView(m_depth.image, m_depthFormat, DepthAspect(), 0, 1);
 	if (m_samples > VK_SAMPLE_COUNT_1_BIT)
 	{
 		if (!m_context.Memory().CreateImage(extent.width, extent.height, 1, VK_FORMAT_R8G8B8A8_UNORM,
@@ -1036,7 +1083,7 @@ void CVulkan3D::CopyLos(VkCommandBuffer cmd, int priority)
 	if (glX < 0 || vkY < 0 || glX >= (int)m_color.width || vkY >= (int)m_color.height)
 		return;
 
-	CmdTransition(cmd, m_depth.image, m_depthLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
+	CmdTransition(cmd, m_depth.image, m_depthLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, DepthAspect());
 	m_depthLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 	VkBufferImageCopy copy = {};
 	copy.bufferOffset = (m_context.FrameIndex() * 4 + (uint32_t)priority) * sizeof(float);
@@ -1045,8 +1092,8 @@ void CVulkan3D::CopyLos(VkCommandBuffer cmd, int priority)
 	copy.imageOffset = { glX, vkY, 0 };
 	copy.imageExtent = { 1, 1, 1 };
 	vkCmdCopyImageToBuffer(cmd, m_depth.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, m_los.buffer, 1, &copy);
-	CmdTransition(cmd, m_depth.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
-	m_depthLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+	CmdTransition(cmd, m_depth.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, DepthAttachmentLayout(), DepthAspect());
+	m_depthLayout = DepthAttachmentLayout();
 
 	// The copy lands after this frame's fence. Convert 1/w depth the same way New3D does
 	// once the buffer is visible; until then the previous value stands. The bit below is
@@ -1067,10 +1114,10 @@ void CVulkan3D::DrawScene(VkCommandBuffer cmd)
 			CmdTransition(command, m_color.image, old, next, VK_IMAGE_ASPECT_COLOR_BIT);
 			m_colorLayout = next;
 		}
-		if (m_depthLayout != VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL)
+		if (m_depthLayout != DepthAttachmentLayout())
 		{
-			CmdTransition(command, m_depth.image, m_depthLayout, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT);
-			m_depthLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+			CmdTransition(command, m_depth.image, m_depthLayout, DepthAttachmentLayout(), DepthAspect());
+			m_depthLayout = DepthAttachmentLayout();
 		}
 
 		VkRenderingAttachmentInfo color = {};
@@ -1097,10 +1144,11 @@ void CVulkan3D::DrawScene(VkCommandBuffer cmd)
 		VkRenderingAttachmentInfo depth = {};
 		depth.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 		depth.imageView = m_depth.view;
-		depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+		depth.imageLayout = DepthAttachmentLayout();
 		depth.loadOp = clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
 		depth.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 		depth.clearValue.depthStencil.depth = 0;
+		depth.clearValue.depthStencil.stencil = 0;
 		VkRenderingInfo info = {};
 		info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
 		info.renderArea.extent = { m_color.width, m_color.height };
@@ -1108,6 +1156,8 @@ void CVulkan3D::DrawScene(VkCommandBuffer cmd)
 		info.colorAttachmentCount = 1;
 		info.pColorAttachments = &color;
 		info.pDepthAttachment = &depth;
+		if (m_stencil)
+			info.pStencilAttachment = &depth;
 		CmdBeginRendering(command, &info);
 	};
 	// Closes the scene pass and, when multisampling, prepares the resolved image for the 2D layer to
@@ -1124,8 +1174,9 @@ void CVulkan3D::DrawScene(VkCommandBuffer cmd)
 	auto clearDepth = [&]()
 	{
 		VkClearAttachment att = {};
-		att.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+		att.aspectMask = DepthAspect();
 		att.clearValue.depthStencil.depth = 0;
+		att.clearValue.depthStencil.stencil = 0;
 		VkClearRect rect = {};
 		rect.rect.extent = { m_color.width, m_color.height };
 		rect.layerCount = 1;
@@ -1135,11 +1186,19 @@ void CVulkan3D::DrawScene(VkCommandBuffer cmd)
 	{
 		bool hasOverlay = false;
 		VkPipeline pipeline;
+		VkPipeline layeredPipeline;
 		if (overlay)
+		{
 			pipeline = translucent ? m_overlayTranslucent : m_overlayOpaque;
+			layeredPipeline = translucent ? m_overlayTranslucentLayered : m_overlayOpaqueLayered;
+		}
 		else
+		{
 			pipeline = translucent ? m_translucent : m_opaque;
+			layeredPipeline = translucent ? m_translucentLayered : m_opaqueLayered;
+		}
 		vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+		bool layeredBound = false;
 		int currentNode = -1;
 		bool dynamicBound = false;
 		bool bound = false;
@@ -1231,6 +1290,17 @@ void CVulkan3D::DrawScene(VkCommandBuffer cmd)
 					}
 					if (m_materialCount >= kMaxMaterials)
 						return hasOverlay;
+					// The stencil test for layered polygons, switched per mesh as New3D does. The
+					// pipeline layouts are the same, so the bound set, push constants, viewport and
+					// vertex buffer all carry over.
+					const bool layered = m_stencil && mesh.layered;
+					if (layered != layeredBound)
+					{
+						vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, layered ? layeredPipeline : pipeline);
+						layeredBound = layered;
+					}
+					if (mesh.layered && m_layeredDraws++ == 0)
+						InfoLog("Vulkan3D: first layered polygons drawn (%s).", m_stencil ? "with the stencil test" : "without a stencil");
 					R3DMaterial material;
 					FillMaterial(material, mesh, model);
 					// Ask how much of the region this draw is about to sample ever actually reached the
