@@ -31,12 +31,17 @@
  * desktop); buttons left, middle, right, side 1 and 2. No keyboard.
  *
  * Force feedback (a drive board's, with ForceFeedback on and its ROM in the
- * zip) on the DualSense's two motors, as the desktop gives an XInput pad
- * (OSD/Windows/DirectInputSystem.cpp), with its settings: a constant force
- * from XInputConstForceThreshold (30%) up, XInputConstForceMax (100%) at
- * full force, on both motors (XInputStereoVibration, on) or on the side it
- * pushes to; the vibration effect on both, XInputVibrateMax (100%) at full.
- * Self-centring and friction have no motor to go to, as on the desktop.
+ * zip) on the DualSense's two motors. A wheel's constant force is mostly a
+ * steady push (the wheel's weight in a corner), which a motor can only turn
+ * into a hum; so the motors get its jolts instead - how far the force is
+ * from where it was a moment ago (low-pass, about 80 ms) - which is what an
+ * impact, a kerb or gravel makes of it. DualSenseRumbleDeadZone (8%) of a
+ * jolt is ignored, the rest doubled, times DualSenseRumble (100%; the
+ * menu's Weak 50, Strong 200), and each fades in about 100 ms. The drive
+ * board's own vibration effect goes to the motors as it is. Self-centring
+ * and friction have no motor to go to, as on the desktop's pads. (The
+ * desktop's XInput mapping, the force itself from 30% up, hummed in every
+ * corner of Sega Rally 2.)
  */
 
 #ifndef INCLUDED_PS5INPUTSYSTEM_H
@@ -97,11 +102,18 @@ private:
   // Force feedback: the drive board's thread sets the levels
   // (ProcessForceFeedbackCmd), Poll() sends them to the motors.
   void UpdateMotors();
-  float m_ffThreshold = 0.3f, m_ffConstMax = 1.0f, m_ffVibrateMax = 1.0f;
-  bool m_ffStereo = true;
-  std::atomic<int> m_ffLeft{ 0 }, m_ffRight{ 0 }, m_ffVibrate{ 0 };  // 0-255 each
-  std::atomic<unsigned> m_ffCommands{ 0 };
-  std::atomic<int> m_ffStrongestPercent{ 0 };   // since the last log line
+  float m_ffGain = 1.0f, m_ffDeadZone = 0.08f;
+  std::atomic<float> m_ffForce{ 0.0f };     // the constant force, -1..1
+  std::atomic<float> m_ffVibrate{ 0.0f };   // the vibration effect, 0..1
+  float m_ffSlow = 0.0f;                    // the force a moment ago (low-pass)
+  float m_ffJolt = 0.0f;                    // the motors' level from the jolts, fading
+  // For the log, since its last line: commands by kind, the constant force's
+  // range and its steps from one command to the next.
+  std::atomic<unsigned> m_ffConst{ 0 }, m_ffVib{ 0 }, m_ffOther{ 0 };
+  std::atomic<int> m_ffMinPercent{ 0 }, m_ffMaxPercent{ 0 };
+  std::atomic<unsigned> m_ffSteps[4] = {};  // under 2%, 10%, 30%, and from 30% up
+  float m_ffLastForce = 0.0f;               // drive board thread only
+  unsigned m_ffJolts = 0;                   // frames the jolts reached the motors
   double m_ffLoggedAt = 0.0;
 };
 

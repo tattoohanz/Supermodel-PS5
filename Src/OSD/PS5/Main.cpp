@@ -130,8 +130,11 @@ static Util::Config::Node PS5DefaultConfig()
   config.Set("HighPriority", false);
   // The drive boards (the wheel's and Star Wars Trilogy's joystick's) with
   // their ROM in the zip, their force feedback on the DualSense's motors
-  // (PS5InputSystem.h). The menu's "Force feedback".
+  // (PS5InputSystem.h): its jolts, past a dead zone, times DualSenseRumble.
+  // The menu's "Force feedback".
   config.Set("ForceFeedback", true);
+  config.Set("DualSenseRumble", 100);
+  config.Set("DualSenseRumbleDeadZone", 8);
   config.Set<std::string>("Outputs", "none");
 
   // The DualSense (PS5InputSystem.h has the numbering). The desktop defaults
@@ -154,6 +157,17 @@ static Util::Config::Node PS5DefaultConfig()
   config.Set<std::string>("InputAnalogJoyEvent", "JOY1_BUTTON2,MOUSE_RIGHT_BUTTON");
   config.Set<std::string>("InputAnalogJoyTrigger2", "JOY1_BUTTON3,MOUSE_MIDDLE_BUTTON");
   config.Set<std::string>("InputAnalogJoyEvent2", "JOY1_BUTTON4,MOUSE_BUTTON4");
+  // The analog gun games (The Ocean Hunter, The Lost World, L.A.
+  // Machineguns), as Star Wars Trilogy: the left stick aims (the gun where
+  // the stick points, as the cabinets' mounted guns), Cross or R2 is the
+  // trigger, Circle or L2 the second one. The desktop's put the mouse first
+  // (it never moves here, and a still pointer just off the centre took the
+  // aim from the stick) and the triggers on JOY1_ZAXIS_NEG, a half the
+  // DualSense's L2 never reaches.
+  config.Set<std::string>("InputAnalogGunX", "JOY1_XAXIS,MOUSE_XAXIS");
+  config.Set<std::string>("InputAnalogGunY", "JOY1_YAXIS,MOUSE_YAXIS");
+  config.Set<std::string>("InputAnalogTriggerLeft", "JOY1_BUTTON1,JOY1_RZAXIS_POS,MOUSE_LEFT_BUTTON");
+  config.Set<std::string>("InputAnalogTriggerRight", "JOY1_BUTTON2,JOY1_ZAXIS_POS,MOUSE_RIGHT_BUTTON");
   // The pedals are analog (not axis) inputs, which take only half axes: the
   // positive half of a trigger is all of it (0 released, 32767 pressed).
   config.Set<std::string>("InputAccelerator", "JOY1_RZAXIS_POS,JOY1_BUTTON3");
@@ -700,6 +714,13 @@ static int RunSession(const GameLoader &loader, const MenuGame &choice)
     return fail("the controls could not start");
   Inputs->LoadFromConfig(s_runtime_config);
   Inputs->ApplyGameSpecificInputRanges(game);
+  if (game.inputs & Game::INPUT_ANALOG_GUN1)
+  {
+    // What the gun gets, which Supermodel.ini can change.
+    auto mapping = [](const char *key) { return s_runtime_config[key].ValueAsDefault<std::string>("NONE"); };
+    InfoLog("Input: gun 1 aim %s / %s, triggers %s / %s.", mapping("InputAnalogGunX").c_str(), mapping("InputAnalogGunY").c_str(),
+      mapping("InputAnalogTriggerLeft").c_str(), mapping("InputAnalogTriggerRight").c_str());
+  }
   Model3->AttachInputs(Inputs);
 
   // Renderers.

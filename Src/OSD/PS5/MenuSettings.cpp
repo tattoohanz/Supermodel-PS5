@@ -100,14 +100,13 @@ const std::vector<MenuSettingDef> &MenuSettingDefs()
       { "150%", { { "SoundVolume", "150" } } }, { "200%", { { "SoundVolume", "200" } } },
     } },
     // A drive board's force feedback (the wheel's, Star Wars Trilogy's
-    // joystick's; its ROM in the zip) on the DualSense's motors, with the
-    // desktop's XInput settings (PS5InputSystem.h): weaker, as the desktop
-    // has it, or every push from 10% up.
+    // joystick's; its ROM in the zip) on the DualSense's motors, its jolts
+    // (PS5InputSystem.h) at half, as they are, or doubled.
     { "Force feedback", {
       { "Off", { { "ForceFeedback", "0" } } },
-      { "Weak", { { "ForceFeedback", "1" }, { "XInputConstForceMax", "50" }, { "XInputVibrateMax", "50" }, { "XInputConstForceThreshold", "30" } } },
-      { "Normal", { { "ForceFeedback", "1" }, { "XInputConstForceMax", "100" }, { "XInputVibrateMax", "100" }, { "XInputConstForceThreshold", "30" } } },
-      { "Strong", { { "ForceFeedback", "1" }, { "XInputConstForceMax", "100" }, { "XInputVibrateMax", "100" }, { "XInputConstForceThreshold", "10" } } },
+      { "Weak", { { "ForceFeedback", "1" }, { "DualSenseRumble", "50" } } },
+      { "Normal", { { "ForceFeedback", "1" }, { "DualSenseRumble", "100" } } },
+      { "Strong", { { "ForceFeedback", "1" }, { "DualSenseRumble", "200" } } },
     } },
   };
   return defs;
