@@ -25,6 +25,13 @@
 #include "Util/PNGFile.h"
 #include <SDL.h>
 #include <SDL_vulkan.h>
+#ifdef SUPERMODEL_PS5
+// No loader to open: RADV is linked in (OSD/PS5/Display.cpp).
+#include "Display.h"
+#define SM_VOLK_INITIALIZE() (PS5VulkanInitialize() ? VK_SUCCESS : VK_ERROR_INITIALIZATION_FAILED)
+#else
+#define SM_VOLK_INITIALIZE() volkInitialize()
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -110,7 +117,7 @@ Result CVulkanContext::InitDevice(SDL_Window* window, bool validation, bool vsyn
 	m_vsync = vsync;
 	m_devicePreference = deviceName;
 
-	if (volkInitialize() != VK_SUCCESS)
+	if (SM_VOLK_INITIALIZE() != VK_SUCCESS)
 	{
 #ifdef __APPLE__
 		ErrorLog("Vulkan: no Vulkan implementation found. Install MoltenVK with "
@@ -476,7 +483,7 @@ bool CVulkanContext::PickDevice()
 std::vector<std::string> EnumeratePhysicalDeviceNames()
 {
 	std::vector<std::string> names;
-	if (volkInitialize() != VK_SUCCESS)
+	if (SM_VOLK_INITIALIZE() != VK_SUCCESS)
 		return names;
 
 	VkApplicationInfo appInfo = {};
