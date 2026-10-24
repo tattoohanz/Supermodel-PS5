@@ -178,7 +178,7 @@ bool PS5AppInit()
 
   static const char *const dirs[] = {
     PS5_APP_DIR, PS5_APP_ROMS, PS5_APP_DIR "/Config", PS5_APP_DIR "/NVRAM", PS5_APP_DIR "/Saves",
-    PS5_APP_DIR "/Screenshots", PS5_APP_DIR "/cache"
+    PS5_APP_DIR "/Screenshots", PS5_APP_DIR "/Bezels", PS5_APP_DIR "/cache"
   };
   for (const char *dir : dirs)
     mkdir(dir, 0777);

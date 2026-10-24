@@ -246,5 +246,10 @@ cp "$vk/runtime/libc.prx" "$app/sce_module/libc.prx"
 # The title's own files, read from /app0.
 cp "$src/Config/Games.xml" "$src/Config/Music.xml" "$app/Config/"
 cp "$src/Supermodel3Bezel.png" "$app/Assets/"
+# The games' own bezels, named by ROM set (ps5/assets/bezels, not in git).
+if compgen -G "$here/assets/bezels/*.png" > /dev/null; then
+    mkdir -p "$app/Assets/Bezels"
+    cp "$here"/assets/bezels/*.png "$app/Assets/Bezels/"
+fi
 "$tool" self --inspect --file "$app/eboot.bin" > /dev/null
 printf 'Supermodel title: %s (%s bytes)\n' "$app" "$(stat -c %s "$app/eboot.bin")"

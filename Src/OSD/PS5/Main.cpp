@@ -63,6 +63,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -310,6 +311,52 @@ static bool FileExists(const std::string &path)
   return stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode);
 }
 
+/*
+ * The game's own bezel, when the default one (BezelMode 1, no BezelImage) is
+ * set: <ROM set>.png from /data/supermodel/Bezels/ (the user's) or the
+ * title's Assets/Bezels/, trying the set, then its parent, each with the
+ * alias below. Otherwise the built-in Supermodel3Bezel.png stays.
+ */
+static void ChooseGameBezel(const Game &game)
+{
+  if (s_runtime_config["BezelMode"].ValueAsDefault<int>(1) != 1 ||
+      !s_runtime_config["BezelImage"].ValueAsDefault<std::string>("").empty())
+    return;
+  // Sets drawn with another set's bezel.
+  static const char *const aliases[][2] = {
+    { "scudplusa", "scudplus" },  // Scud Race Plus, its parent is scud
+    { "vs298", "vs2" },           // Virtua Striker 2 '98
+  };
+  std::vector<std::string> names;
+  auto add = [&names](const std::string &name)
+  {
+    if (name.empty())
+      return;
+    names.push_back(name);
+    for (const auto &alias : aliases)
+      if (name == alias[0])
+        names.push_back(alias[1]);
+  };
+  add(game.name);
+  add(game.parent);
+  const std::string dirs[] = { std::string(PS5_APP_DIR) + "/Bezels/", std::string(PS5AppTitleDir()) + "/Assets/Bezels/" };
+  for (const std::string &name : names)
+  {
+    for (const std::string &dir : dirs)
+    {
+      const std::string path = dir + name + ".png";
+      if (FileExists(path))
+      {
+        s_runtime_config.Set("BezelMode", 2);
+        s_runtime_config.Set("BezelImage", path);
+        InfoLog("Bezel: '%s' for %s.", path.c_str(), game.name.c_str());
+        return;
+      }
+    }
+  }
+  InfoLog("Bezel: none for %s; the default one.", game.name.c_str());
+}
+
 // The game's picture inside the display: 496x384 kept in shape and as large
 // as fits, unless Stretch is on (as CalcScreenGeometry in OSD/SDL/Main.cpp).
 static void CalcScreenGeometry(unsigned totalX, unsigned totalY, bool keepAspect,
@@ -402,6 +449,7 @@ static int RunSession()
   }
   rom_set = ROMSet();  // the ROMs are in the emulator now
   LoadNVRAM(Model3);
+  ChooseGameBezel(game);
 
   SetAudioType(game.audio);
   if (Result::OKAY != OpenAudio(s_runtime_config))
