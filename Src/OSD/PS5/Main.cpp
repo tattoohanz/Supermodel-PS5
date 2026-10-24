@@ -132,14 +132,17 @@ static Util::Config::Node PS5DefaultConfig()
   // Service on D-pad left, Test on D-pad right (also R3 and the touchpad
   // click; the D-pad no longer steers). R2 accelerates (or Square), L2
   // brakes, Circle is the handbrake (or D-pad down), Triangle changes the
-  // view. Games with an analog joystick (Star Wars Trilogy): Cross fires,
-  // Circle is the second fire button. Where the D-pad is the game's joystick
+  // view. Games with an analog joystick (Star Wars Trilogy, whose input test
+  // calls them fire 0, event 0, fire 1, event 1): Cross, Circle, Square,
+  // Triangle. Where the D-pad is the game's joystick
   // RunSession takes Service and Test off it (ServiceTestForGame).
   config.Set<std::string>("InputCoin1", "JOY1_POV1_UP");
   config.Set<std::string>("InputSteeringLeft", "NONE");
   config.Set<std::string>("InputSteeringRight", "NONE");
   config.Set<std::string>("InputAnalogJoyTrigger", "JOY1_BUTTON1");
   config.Set<std::string>("InputAnalogJoyEvent", "JOY1_BUTTON2");
+  config.Set<std::string>("InputAnalogJoyTrigger2", "JOY1_BUTTON3");
+  config.Set<std::string>("InputAnalogJoyEvent2", "JOY1_BUTTON4");
   // The pedals are analog (not axis) inputs, which take only half axes: the
   // positive half of a trigger is all of it (0 released, 32767 pressed).
   config.Set<std::string>("InputAccelerator", "JOY1_RZAXIS_POS,JOY1_BUTTON3");
