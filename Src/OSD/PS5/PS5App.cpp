@@ -25,6 +25,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <set>
+#include <string>
 #include "OSD/Logger.h"
 
 #include <fcntl.h>
@@ -140,6 +142,17 @@ static bool HenJailbreak(char *msg, size_t size)
   return true;  // /data access is what counts, checked by the log
 }
 
+// The imports ReportUnresolvedImports() found unbound (PS5ImportResolved).
+static std::set<std::string> s_unresolvedImports;
+static bool s_importsRead = false;
+
+bool PS5ImportResolved(const char *name)
+{
+  // Without imports.txt there is no telling; the title has been running on
+  // the same assumption for every other import.
+  return !s_importsRead || s_unresolvedImports.find(name) == s_unresolvedImports.end();
+}
+
 static void ReportUnresolvedImports()
 {
   static const char *const paths[] = {
@@ -159,6 +172,7 @@ static void ReportUnresolvedImports()
     return;
   }
   fprintf(stderr, "ps5: imports from %s\n", path);
+  s_importsRead = true;
   char name[128], list[400] = "";
   unsigned long offset;
   int checked = 0, missing = 0;
@@ -168,6 +182,7 @@ static void ReportUnresolvedImports()
     if (*(const uint64_t *)(EBOOT_BASE + offset) == 0)
     {
       fprintf(stderr, "ps5: unresolved import: %s\n", name);
+      s_unresolvedImports.insert(name);
       if (missing++ < 10)
         snprintf(list + strlen(list), sizeof(list) - strlen(list), "%s%s", missing > 1 ? " " : "", name);
     }

@@ -38,6 +38,11 @@ void PS5Notify(const char *message);
 // game's when it starts straight away). Logs what that was.
 void PS5HideSplashOnce(const char *what);
 
+// Whether the console bound this import (imports.txt, checked by PS5AppInit);
+// true when that could not be checked. An unbound one is 0, and calling it
+// jumps there.
+bool PS5ImportResolved(const char *name);
+
 // Seconds since PS5AppInit, for log timestamps.
 double PS5AppSeconds();
 

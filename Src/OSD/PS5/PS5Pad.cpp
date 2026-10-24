@@ -15,11 +15,24 @@
  */
 
 #include "PS5Pad.h"
+#include "PS5App.h"
 #include "Supermodel.h"
 
+#include <algorithm>
 #include <cstring>
+#include <ctime>
+
+namespace
+{
+  struct PadVibration
+  {
+    uint8_t largeMotor, smallMotor;
+  };
+}
 
 extern "C" {
+int scePadSetVibration(int32_t handle, const PadVibration *param);
+int scePadSetVibrationMode(int32_t handle, int32_t mode);
 int sceUserServiceInitialize(const void *params);
 int sceUserServiceGetInitialUser(int32_t *user_id);
 int scePadInit(void);
@@ -48,6 +61,20 @@ namespace
   unsigned s_readsUntilRetry = 0;
   bool s_loggedFailure = false;
   PS5PadState s_last;
+
+  // The motors (PS5PadVibrate).
+  int32_t s_vibrationHandle = -1;     // the handle the vibration mode was set on
+  PadVibration s_vibration = { 0, 0 };
+  int64_t s_vibrationSentMs = 0;
+  bool s_vibrationLoggedFirst = false, s_vibrationLoggedFailure = false;
+  PS5PadVibrationStats s_vibrationStats;
+
+  int64_t NowMs()
+  {
+    timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+  }
 
   void Open()
   {
@@ -113,4 +140,62 @@ const PS5PadState &PS5PadLast()
 int32_t PS5PadUser()
 {
   return s_user;
+}
+
+void PS5PadVibrate(uint8_t large, uint8_t small)
+{
+  static const bool bound = PS5ImportResolved("scePadSetVibration") && PS5ImportResolved("scePadSetVibrationMode");
+  static bool loggedUnbound = false;
+  if (!bound)
+  {
+    if (!loggedUnbound && (large || small))
+    {
+      loggedUnbound = true;
+      ErrorLog("Input: no force feedback - scePadSetVibration or scePadSetVibrationMode is not bound for this title.");
+    }
+    return;
+  }
+  if (s_handle < 0)
+    return;
+  if (s_vibrationHandle != s_handle)
+  {
+    const int rc = scePadSetVibrationMode(s_handle, 2);
+    InfoLog("Input: DualSense vibration mode 2 (compatible) on handle %d: 0x%x.", s_handle, (unsigned)rc);
+    s_vibrationHandle = s_handle;
+    s_vibration = { 0, 0 };
+    s_vibrationSentMs = 0;
+  }
+  const int64_t now = NowMs();
+  const bool changed = large != s_vibration.largeMotor || small != s_vibration.smallMotor;
+  const bool refresh = (large || small) && now - s_vibrationSentMs >= 1000;
+  if (!changed && !refresh)
+    return;
+  const PadVibration v = { large, small };
+  const int rc = scePadSetVibration(s_handle, &v);
+  s_vibration = v;
+  s_vibrationSentMs = now;
+  s_vibrationStats.sends++;
+  s_vibrationStats.strongest = std::max(s_vibrationStats.strongest, std::max(large, small));
+  if (rc != 0)
+  {
+    s_vibrationStats.failures++;
+    s_vibrationStats.lastError = rc;
+    if (!s_vibrationLoggedFailure)
+    {
+      s_vibrationLoggedFailure = true;
+      ErrorLog("Input: DualSense motors %u, %u: 0x%x.", large, small, (unsigned)rc);
+    }
+  }
+  else if ((large || small) && !s_vibrationLoggedFirst)
+  {
+    s_vibrationLoggedFirst = true;
+    InfoLog("Input: DualSense motors first on (%u, %u of 255).", large, small);
+  }
+}
+
+bool PS5PadTakeVibrationStats(PS5PadVibrationStats &stats)
+{
+  stats = s_vibrationStats;
+  s_vibrationStats = PS5PadVibrationStats();
+  return stats.sends > 0;
 }

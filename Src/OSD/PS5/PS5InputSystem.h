@@ -28,15 +28,24 @@
  * A mouse (PS5Mouse.h), any one, as MOUSE_...: its movement moves a pointer
  * kept on the game's picture, 1000 counts across it, whose position is
  * MOUSE_XAXIS/YAXIS (the centre being the middle of an axis, as on the
- * desktop); buttons left, middle, right, side 1 and 2. No keyboard. Force
- * feedback comes later.
+ * desktop); buttons left, middle, right, side 1 and 2. No keyboard.
+ *
+ * Force feedback (a drive board's, with ForceFeedback on and its ROM in the
+ * zip) on the DualSense's two motors, as the desktop gives an XInput pad
+ * (OSD/Windows/DirectInputSystem.cpp), with its settings: a constant force
+ * from XInputConstForceThreshold (30%) up, XInputConstForceMax (100%) at
+ * full force, on both motors (XInputStereoVibration, on) or on the side it
+ * pushes to; the vibration effect on both, XInputVibrateMax (100%) at full.
+ * Self-centring and friction have no motor to go to, as on the desktop.
  */
 
 #ifndef INCLUDED_PS5INPUTSYSTEM_H
 #define INCLUDED_PS5INPUTSYSTEM_H
 
 #include "Inputs/InputSystem.h"
+#include "Util/NewConfig.h"
 
+#include <atomic>
 #include <cstdint>
 
 class CPS5InputSystem : public CInputSystem
@@ -46,7 +55,8 @@ public:
   // Main.cpp). Every session starts with it off.
   static void SetLeftStickInverted(bool inverted);
 
-  CPS5InputSystem();
+  // The force feedback settings are read here (the session's configuration).
+  explicit CPS5InputSystem(const Util::Config::Node &config);
   ~CPS5InputSystem() override;
 
   int GetNumKeyboards() const override;
@@ -83,6 +93,16 @@ private:
   uint8_t m_lx = 128, m_ly = 128, m_rx = 128, m_ry = 128, m_l2 = 0, m_r2 = 0;
   uint32_t m_buttonsLogged = 0;
   bool m_triggersLogged[2] = { false, false };
+
+  // Force feedback: the drive board's thread sets the levels
+  // (ProcessForceFeedbackCmd), Poll() sends them to the motors.
+  void UpdateMotors();
+  float m_ffThreshold = 0.3f, m_ffConstMax = 1.0f, m_ffVibrateMax = 1.0f;
+  bool m_ffStereo = true;
+  std::atomic<int> m_ffLeft{ 0 }, m_ffRight{ 0 }, m_ffVibrate{ 0 };  // 0-255 each
+  std::atomic<unsigned> m_ffCommands{ 0 };
+  std::atomic<int> m_ffStrongestPercent{ 0 };   // since the last log line
+  double m_ffLoggedAt = 0.0;
 };
 
 #endif  // INCLUDED_PS5INPUTSYSTEM_H

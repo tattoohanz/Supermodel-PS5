@@ -18,6 +18,7 @@
  */
 
 #include "PS5InputSystem.h"
+#include "PS5App.h"
 #include "PS5Mouse.h"
 #include "PS5Pad.h"
 #include "Supermodel.h"
@@ -81,14 +82,28 @@ namespace
   }
 }
 
-CPS5InputSystem::CPS5InputSystem() : CInputSystem("ps5")
+CPS5InputSystem::CPS5InputSystem(const Util::Config::Node &config) : CInputSystem("ps5")
 {
   memset(&m_joyDetails, 0, sizeof(m_joyDetails));
   strncpy(m_joyDetails.name, "DualSense", MAX_NAME_LENGTH);
   m_joyDetails.numAxes = 6;
   m_joyDetails.numPOVs = 1;
   m_joyDetails.numButtons = kNumButtons;
-  m_joyDetails.hasFFeedback = false;
+  // The motors take the force feedback of whatever is on the sticks (the
+  // wheel's steering, Star Wars Trilogy's joystick).
+  m_joyDetails.hasFFeedback = true;
+  for (int axis : { AXIS_X, AXIS_Y, AXIS_RX, AXIS_RY })
+    m_joyDetails.axisHasFF[axis] = true;
+  auto percent = [&config](const char *key, unsigned fallback)
+  {
+    const Util::Config::Node *node = config.TryGet(key);
+    return (float)std::min(200u, node ? node->ValueAsDefault<unsigned>(fallback) : fallback) / 100.0f;
+  };
+  m_ffThreshold = percent("XInputConstForceThreshold", 30);
+  m_ffConstMax = percent("XInputConstForceMax", 100);
+  m_ffVibrateMax = percent("XInputVibrateMax", 100);
+  const Util::Config::Node *stereo = config.TryGet("XInputStereoVibration");
+  m_ffStereo = stereo ? stereo->ValueAsDefault<bool>(true) : true;
   static const char *const axisNames[] = { "Left stick X", "Left stick Y", "L2", "Right stick X", "Right stick Y", "R2" };
   const int axes[] = { AXIS_X, AXIS_Y, AXIS_Z, AXIS_RX, AXIS_RY, AXIS_RZ };
   for (int i = 0; i < 6; i++)
@@ -100,6 +115,8 @@ CPS5InputSystem::CPS5InputSystem() : CInputSystem("ps5")
 
 CPS5InputSystem::~CPS5InputSystem()
 {
+  // The session is over: the motors stop with it.
+  PS5PadVibrate(0, 0);
 }
 
 void CPS5InputSystem::SetLeftStickInverted(bool inverted)
@@ -138,6 +155,7 @@ bool CPS5InputSystem::Poll()
   }
 
   const PS5PadState d = PS5PadRead();
+  UpdateMotors();
   m_stateValid = d.valid;
   m_buttons = d.buttons;
   m_lx = d.lx;
@@ -257,7 +275,67 @@ bool CPS5InputSystem::IsJoyButPressed(int joyNum, int butNum) const
   return (m_buttons & kButtonBits[butNum]) != 0;
 }
 
-bool CPS5InputSystem::ProcessForceFeedbackCmd(int, int, ForceFeedbackCmd)
+/*
+ * From the drive board's thread. The levels as the desktop's XInput pads get
+ * them (DirectInputSystem.cpp, CDirectInputSystem::ProcessForceFeedbackCmd):
+ * a constant force below the threshold stops the motors; at or above it, its
+ * size times XInputConstForceMax, on both motors or on the side it pushes to
+ * (left the large motor, right the small one); the vibration effect on both.
+ */
+bool CPS5InputSystem::ProcessForceFeedbackCmd(int, int, ForceFeedbackCmd ffCmd)
 {
-  return false;
+  auto level = [](float force, float max) { return (int)std::min(255.0f, std::max(0.0f, force * max * 255.0f)); };
+  m_ffCommands++;
+  const float size = ffCmd.force < 0.0f ? -ffCmd.force : ffCmd.force;
+  const int percent = (int)(size * 100.0f + 0.5f);
+  if (ffCmd.id != FFStop && percent > m_ffStrongestPercent)
+    m_ffStrongestPercent = percent;  // for the log; a race with Poll() only costs a reading
+  switch (ffCmd.id)
+  {
+  case FFStop:
+    m_ffLeft = m_ffRight = m_ffVibrate = 0;
+    return true;
+  case FFConstantForce:
+    if (size == 0.0f || size < m_ffThreshold)
+      m_ffLeft = m_ffRight = 0;
+    else if (m_ffStereo)
+      m_ffLeft = m_ffRight = level(size, m_ffConstMax);
+    else
+    {
+      m_ffLeft = ffCmd.force < 0.0f ? level(size, m_ffConstMax) : 0;
+      m_ffRight = ffCmd.force < 0.0f ? 0 : level(size, m_ffConstMax);
+    }
+    return true;
+  case FFVibrate:
+    m_ffVibrate = level(size, m_ffVibrateMax);
+    return true;
+  default:  // self-centring, friction: no motor for them
+    return false;
+  }
+}
+
+// From Poll(): the levels to the motors, and every 10 s what they got.
+void CPS5InputSystem::UpdateMotors()
+{
+  const int vibrate = m_ffVibrate;
+  const int large = std::min(255, m_ffLeft + vibrate);
+  const int small = std::min(255, m_ffRight + vibrate);
+  PS5PadVibrate((uint8_t)large, (uint8_t)small);
+
+  const double now = PS5AppSeconds();
+  if (now - m_ffLoggedAt < 10.0)
+    return;
+  m_ffLoggedAt = now;
+  const unsigned commands = m_ffCommands.exchange(0);
+  PS5PadVibrationStats stats;
+  const bool sent = PS5PadTakeVibrationStats(stats);
+  if (!commands && !sent)
+    return;
+  const int strongest = m_ffStrongestPercent.exchange(0);
+  if (stats.failures)
+    InfoLog("Input: force feedback: %u commands (strongest %d%%), %u motor sends (strongest %d of 255), %u failed (last 0x%x).",
+      commands, strongest, stats.sends, stats.strongest, stats.failures, (unsigned)stats.lastError);
+  else
+    InfoLog("Input: force feedback: %u commands (strongest %d%%), %u motor sends (strongest %d of 255).",
+      commands, strongest, stats.sends, stats.strongest);
 }

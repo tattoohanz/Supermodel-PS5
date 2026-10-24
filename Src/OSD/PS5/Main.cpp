@@ -128,6 +128,10 @@ static Util::Config::Node PS5DefaultConfig()
   config.Set("RenderScale", 0, "Video", 0, 8);
   config.Set("FullScreen", true);
   config.Set("HighPriority", false);
+  // The drive boards (the wheel's and Star Wars Trilogy's joystick's) with
+  // their ROM in the zip, their force feedback on the DualSense's motors
+  // (PS5InputSystem.h). The menu's "Force feedback".
+  config.Set("ForceFeedback", true);
   config.Set<std::string>("Outputs", "none");
 
   // The DualSense (PS5InputSystem.h has the numbering). The desktop defaults
@@ -666,6 +670,19 @@ static int RunSession(const GameLoader &loader, const MenuGame &choice)
   Model3 = new CModel3(s_runtime_config);
   if (Result::OKAY != Model3->Init())
     return fail("the emulator could not start (Init)");
+  {
+    // Force feedback: a drive board, its ROM in the zip, the setting.
+    static const char *const boards[] = { "no drive board", "the wheel's drive board", "the joystick's drive board",
+      "the ski board (simulated)", "the billboard" };
+    const unsigned type = (unsigned)game.driveboard_type;
+    const bool rom = rom_set.get_rom("driveboard_program").size > 0;
+    const bool on = s_runtime_config["ForceFeedback"].ValueAsDefault<bool>(false);
+    if (type == Game::DRIVE_BOARD_WHEEL || type == Game::DRIVE_BOARD_JOYSTICK)
+      InfoLog("Config: force feedback %s - %s, %s.", on && rom ? "on the DualSense's motors" : "off", boards[type],
+        rom ? (on ? "its ROM in the zip" : "its ROM in the zip, ForceFeedback off") : "its ROM is not in the zip (see the ROM lines above)");
+    else
+      InfoLog("Config: no force feedback - %s.", type < sizeof(boards) / sizeof(boards[0]) ? boards[type] : "an unknown drive board");
+  }
   if (Model3->LoadGame(game, rom_set) != Result::OKAY)
     return fail("the emulator could not start (LoadGame)");
   rom_set = ROMSet();  // the ROMs are in the emulator now
@@ -678,7 +695,7 @@ static int RunSession(const GameLoader &loader, const MenuGame &choice)
   audioOpen = true;
 
   // Inputs: the DualSense.
-  Inputs = new CInputs(std::make_shared<CPS5InputSystem>());
+  Inputs = new CInputs(std::make_shared<CPS5InputSystem>(s_runtime_config));
   if (!Inputs->Initialize())
     return fail("the controls could not start");
   Inputs->LoadFromConfig(s_runtime_config);

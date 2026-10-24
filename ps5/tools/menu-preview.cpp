@@ -249,7 +249,7 @@ int main(int argc, char **argv)
   f.headerLogo = Load(dir + "/Assets/Menu/header/logo.png");
   for (const auto &row : std::vector<MenuSettingRow>{ { "Picture", "16:9" }, { "Resolution", "8x 3968x3072" }, { "PowerPC", "120 MHz" },
          { "CRT filter", "CRT arcade" }, { "Anti-aliasing", "FXAA" }, { "Bezel", "On" }, { "Glow", "Off" },
-         { "Music", "100%" }, { "Sound effects", "100%" } })
+         { "Music", "100%" }, { "Sound effects", "100%" }, { "Force feedback", "Normal" } })
     f.settings.push_back(row);
   f.settingsRow = 1;
   f.settingsFocus = getenv("PREVIEW_SETTINGS") != nullptr;

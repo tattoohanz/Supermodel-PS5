@@ -64,4 +64,21 @@ const PS5PadState &PS5PadLast();
 // The user who started the app (-1 until the first read finds one).
 int32_t PS5PadUser();
 
+// The DualSense's two motors (0-255 each; 0, 0 stops them), for the drive
+// boards' force feedback (PS5InputSystem.cpp). Sent when the levels change
+// and again every second while they are on; a no-op without a pad. In the
+// controller's compatible vibration mode, set once per handle, as XPSemu
+// Chihiro does after PS5_RetroArch.
+void PS5PadVibrate(uint8_t large, uint8_t small);
+
+// What the motors were sent since the last call, for the log: false when
+// nothing was.
+struct PS5PadVibrationStats
+{
+  unsigned sends = 0, failures = 0;
+  int lastError = 0;
+  uint8_t strongest = 0;
+};
+bool PS5PadTakeVibrationStats(PS5PadVibrationStats &stats);
+
 #endif  // INCLUDED_PS5PAD_H
