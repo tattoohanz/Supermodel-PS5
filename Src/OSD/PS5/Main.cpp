@@ -55,6 +55,7 @@
 #include "PS5App.h"
 #include "PS5InputSystem.h"
 #include "Diag.h"
+#include "Cost.h"
 
 #include <cstdarg>
 #include <cstdio>
@@ -65,10 +66,12 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <pthread.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
 extern "C" int sceSystemServiceHideSplashScreen(void);
+extern "C" int scePthreadGetaffinity(pthread_t thread, unsigned long long *mask);
 
 /******************************************************************************
  Diagnostics (Diag.h): the picture's stages dumped 15, 30 and 45 s in
@@ -242,14 +245,19 @@ static Vulkan3D::CVulkanContext *s_vkContext = nullptr;
 
 bool BeginFrameVideo()
 {
-  return s_vkContext ? s_vkContext->BeginFrame() : true;
+  const uint64_t start = PS5CostNow();
+  const bool ok = s_vkContext ? s_vkContext->BeginFrame() : true;
+  PS5CostAdd(PS5_COST_VIDEO_BEGIN, PS5CostNow() - start);
+  return ok;
 }
 
 void EndFrameVideo()
 {
   if (!s_vkContext)
     return;
+  const uint64_t start = PS5CostNow();
   s_vkContext->EndFrame();
+  PS5CostAdd(PS5_COST_VIDEO_END, PS5CostNow() - start);
 
   // The system keeps showing the title's launch picture over VideoOut until
   // the app takes it down (as XPSemu Chihiro does after its first frame).
@@ -554,6 +562,17 @@ static int RunSession()
       InfoLog("ps5: %.2f FPS, RunFrame avg %.2f ms max %.2f ms, audio under-runs %u over-runs %u, frame %llu",
         frames / secs, runNs / 1e6 / frames, runMaxNs / 1e6, underruns - underrunsAtStat, overruns - overrunsAtStat,
         totalFrames);
+      // Where the frames' time went: milliseconds per emulated frame for the
+      // per-frame stages, the sound board's busy milliseconds per second.
+      uint64_t costNs[PS5_COST__COUNT], costCounts[PS5_COST__COUNT];
+      PS5CostTake(costNs, costCounts);
+      auto perFrame = [&](int slot) { return costNs[slot] / 1e6 / (frames ? frames : 1); };
+      InfoLog("ps5 cost (ms/frame): PowerPC %.2f (CPU %.2f), render %.2f (fence+acquire %.2f, submit+present %.2f), "
+        "wait for boards %.2f, sync %.2f, drive board %.2f; sound board %.0f ms/s (CPU %.0f), %llu runs",
+        perFrame(PS5_COST_PPC), perFrame(PS5_COST_PPC_CPU), perFrame(PS5_COST_RENDER), perFrame(PS5_COST_VIDEO_BEGIN),
+        perFrame(PS5_COST_VIDEO_END), perFrame(PS5_COST_WAIT), perFrame(PS5_COST_SYNC), perFrame(PS5_COST_DRIVE),
+        costNs[PS5_COST_SOUND] / 1e6 / secs, costNs[PS5_COST_SOUND_CPU] / 1e6 / secs,
+        (unsigned long long)costCounts[PS5_COST_SOUND]);
       statStart = now;
       runNs = runMaxNs = 0;
       frames = 0;
@@ -577,6 +596,11 @@ int main(int, char **)
     return 1;
   SetLogger(std::make_shared<CPS5Logger>(CLogger::LogLevel::Info));
   InfoLog("%s on the PS5 (%s).", SUPERMODEL_TITLE_FULL, PS5_APP_TITLE_ID);
+  {
+    unsigned long long mask = 0;
+    const int rc = scePthreadGetaffinity(pthread_self(), &mask);
+    InfoLog("Thread: main thread CPU mask 0x%llx (0x%x).", mask, (unsigned)rc);
+  }
 
   int result = 1;
   try

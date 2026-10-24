@@ -229,6 +229,15 @@
 #include "Network/SimNetBoard.h"
 #include "OSD/Audio.h"
 #include "OSD/Video.h"
+#ifdef SUPERMODEL_PS5
+// Where a frame's time goes (OSD/PS5/Cost.h), logged by the PS5 front end.
+#include "Cost.h"
+#define PS5_COST_START(var) const uint64_t var = PS5CostNow()
+#define PS5_COST_STOP(slot, var) PS5CostAdd(slot, PS5CostNow() - var)
+#else
+#define PS5_COST_START(var)
+#define PS5_COST_STOP(slot, var)
+#endif
 #include "Util/Format.h"
 #include "Util/ByteSwap.h"
 #include <functional>
@@ -1972,6 +1981,7 @@ void CModel3::RunFrame(void)
 
     // Render frame
     RenderFrame();
+    PS5_COST_START(waitStart);
 
     // Enter notify wait critical section
     if (!notifyLock->Lock())
@@ -1988,6 +1998,7 @@ void CModel3::RunFrame(void)
     ppcBrdThreadDone = false;
     sndBrdThreadDone = false;
     drvBrdThreadDone = false;
+    PS5_COST_STOP(PS5_COST_WAIT, waitStart);
 
     // Leave notify wait critical section
     if (!notifyLock->Unlock())
@@ -2047,6 +2058,10 @@ static unsigned GetCPUClockFrequencyInHz(const Game &game, Util::Config::Node &c
 void CModel3::RunMainBoardFrame(void)
 {
 	UINT32 start = CThread::GetTicks();
+	PS5_COST_START(ppcStart);
+#ifdef SUPERMODEL_PS5
+	const uint64_t ppcCpuStart = PS5CostThreadCpu();
+#endif
 
 	/* 
    * Compute display timings. Refresh rate is 57.524160 Hz and we assume frame timing is the same as System 24:
@@ -2147,21 +2162,28 @@ void CModel3::RunMainBoardFrame(void)
     }
 
 	timings.ppcTicks = CThread::GetTicks() - start;
+	PS5_COST_STOP(PS5_COST_PPC, ppcStart);
+#ifdef SUPERMODEL_PS5
+	PS5CostAdd(PS5_COST_PPC_CPU, PS5CostThreadCpu() - ppcCpuStart);
+#endif
 }
 
 void CModel3::SyncGPUs(void)
 {
   UINT32 start = CThread::GetTicks();
+  PS5_COST_START(syncStart);
 
   timings.syncSize = GPU.SyncSnapshots() + TileGen.SyncSnapshots();
   gpusReady = true;
 
   timings.syncTicks = CThread::GetTicks() - start;
+  PS5_COST_STOP(PS5_COST_SYNC, syncStart);
 }
 
 void CModel3::RenderFrame(void)
 {
   UINT32 start = CThread::GetTicks();
+  PS5_COST_START(renderStart);
 
   // Call OSD video callbacks
   if (BeginFrameVideo() && gpusReady)
@@ -2182,21 +2204,32 @@ void CModel3::RenderFrame(void)
   EndFrameVideo();
 
   timings.renderTicks = CThread::GetTicks() - start;
+  PS5_COST_STOP(PS5_COST_RENDER, renderStart);
 }
 
 bool CModel3::RunSoundBoardFrame(void)
 {
   UINT32 start = CThread::GetTicks();
+  PS5_COST_START(soundStart);
+#ifdef SUPERMODEL_PS5
+  const uint64_t soundCpuStart = PS5CostThreadCpu();
+#endif
   bool bufferFull = SoundBoard.RunFrame();
   timings.sndTicks = CThread::GetTicks() - start;
+  PS5_COST_STOP(PS5_COST_SOUND, soundStart);
+#ifdef SUPERMODEL_PS5
+  PS5CostAdd(PS5_COST_SOUND_CPU, PS5CostThreadCpu() - soundCpuStart);
+#endif
   return bufferFull;
 }
 
 void CModel3::RunDriveBoardFrame(void)
 {
   UINT32 start = CThread::GetTicks();
+  PS5_COST_START(driveStart);
   DriveBoard->RunFrame();
   timings.drvTicks = CThread::GetTicks() - start;
+  PS5_COST_STOP(PS5_COST_DRIVE, driveStart);
 }
 
 void CModel3::RunNetBoardFrame(void)

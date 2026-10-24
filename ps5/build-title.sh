@@ -104,7 +104,7 @@ Src/GameLoader.cpp Src/ROMSet.cpp
 Src/Network/NetBoard.cpp Src/Network/SimNetBoard.cpp
 Src/OSD/PS5/Main.cpp Src/OSD/PS5/PS5App.cpp Src/OSD/PS5/Display.cpp Src/OSD/PS5/Thread.cpp
 Src/OSD/PS5/AudioOut.cpp Src/OSD/PS5/FileSystemPath.cpp Src/OSD/PS5/NetLoopback.cpp
-Src/OSD/PS5/PS5InputSystem.cpp Src/OSD/PS5/GLStubs.cpp
+Src/OSD/PS5/PS5InputSystem.cpp Src/OSD/PS5/GLStubs.cpp Src/OSD/PS5/Cost.cpp
 ps5/compat/libc_missing.c
 """.split()
 # The desktop Audio.cpp, compiled from a copy (see below) so its quoted

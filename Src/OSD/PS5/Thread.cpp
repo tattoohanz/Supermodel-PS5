@@ -27,6 +27,8 @@
 #include <pthread.h>
 #include <unistd.h>
 
+extern "C" int scePthreadGetaffinity(pthread_t thread, unsigned long long *mask);
+
 namespace
 {
   struct ThreadImpl
@@ -36,6 +38,7 @@ namespace
     void *param;
     int result;
     UINT32 id;
+    std::string name;
   };
 
   struct SemaphoreImpl
@@ -55,6 +58,10 @@ namespace
   void *ThreadEntry(void *arg)
   {
     ThreadImpl *impl = (ThreadImpl *)arg;
+    // Which CPUs the console lets the thread run on (diagnostic).
+    unsigned long long mask = 0;
+    const int rc = scePthreadGetaffinity(pthread_self(), &mask);
+    InfoLog("Thread: '%s' running, CPU mask 0x%llx (0x%x).", impl->name.c_str(), mask, (unsigned)rc);
     impl->result = impl->start(impl->param);
     return nullptr;
   }
@@ -88,6 +95,7 @@ CThread *CThread::CreateThread(const std::string &name, ThreadStart start, void 
   impl->param = startParam;
   impl->result = 0;
   impl->id = __atomic_fetch_add(&s_nextId, 1, __ATOMIC_RELAXED);
+  impl->name = name;
   // No attributes: the platform layer's pthread_create wrap gives a thread
   // that asks for no stack 2 MiB in direct memory, as it does RADV's.
   int err = pthread_create(&impl->thread, nullptr, ThreadEntry, impl);
@@ -97,7 +105,6 @@ CThread *CThread::CreateThread(const std::string &name, ThreadStart start, void 
     delete impl;
     return nullptr;
   }
-  InfoLog("Thread: started '%s'.", name.c_str());
   return new CThread(name, impl);
 }
 
