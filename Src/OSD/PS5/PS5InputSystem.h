@@ -64,12 +64,7 @@ protected:
   bool ProcessForceFeedbackCmd(int joyNum, int axisNum, ForceFeedbackCmd ffCmd) override;
 
 private:
-  void OpenPad();
-
   JoyDetails m_joyDetails;
-  int32_t m_user = -1;
-  int32_t m_handle = -1;
-  unsigned m_pollsUntilRetry = 0;
   bool m_stateValid = false;
   uint32_t m_buttons = 0;     // libScePad's button bits
   uint8_t m_lx = 128, m_ly = 128, m_rx = 128, m_ry = 128, m_l2 = 0, m_r2 = 0;

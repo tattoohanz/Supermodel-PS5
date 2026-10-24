@@ -3,3 +3,5 @@ dist/
 assets/bezels/*.png
 assets/art-src/
 assets/sce_sys/
+assets/menu-src/
+assets/menu/

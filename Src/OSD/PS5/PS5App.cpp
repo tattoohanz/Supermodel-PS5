@@ -25,6 +25,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include "OSD/Logger.h"
+
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -32,6 +34,7 @@
 extern "C" {
 int sceKernelUsleep(unsigned int microseconds);
 int sceKernelSendNotificationRequest(int device, void *request, size_t size, int blocking);
+int sceSystemServiceHideSplashScreen(void);
 uid_t __real_geteuid(void);
 gid_t __real_getegid(void);
 
@@ -64,6 +67,16 @@ double PS5AppSeconds()
   struct timespec now;
   clock_gettime(CLOCK_MONOTONIC, &now);
   return (double)(now.tv_sec - s_start.tv_sec) + (double)(now.tv_nsec - s_start.tv_nsec) / 1e9;
+}
+
+void PS5HideSplashOnce(const char *what)
+{
+  static bool s_hidden = false;
+  if (s_hidden)
+    return;
+  s_hidden = true;
+  const int rc = sceSystemServiceHideSplashScreen();
+  InfoLog("Video: first %s presented; splash screen hidden (0x%x).", what, (unsigned)rc);
 }
 
 void PS5Notify(const char *message)

@@ -33,6 +33,11 @@ bool PS5AppInit();
 // A system notification (toast).
 void PS5Notify(const char *message);
 
+// The system shows the title's launch picture over VideoOut until the app
+// takes it down: after the first frame the app presents (the menu's, or the
+// game's when it starts straight away). Logs what that was.
+void PS5HideSplashOnce(const char *what);
+
 // Seconds since PS5AppInit, for log timestamps.
 double PS5AppSeconds();
 

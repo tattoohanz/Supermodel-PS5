@@ -105,6 +105,9 @@ Src/Network/NetBoard.cpp Src/Network/SimNetBoard.cpp
 Src/OSD/PS5/Main.cpp Src/OSD/PS5/PS5App.cpp Src/OSD/PS5/Display.cpp Src/OSD/PS5/Thread.cpp
 Src/OSD/PS5/AudioOut.cpp Src/OSD/PS5/FileSystemPath.cpp Src/OSD/PS5/NetLoopback.cpp
 Src/OSD/PS5/PS5InputSystem.cpp Src/OSD/PS5/GLStubs.cpp Src/OSD/PS5/Cost.cpp
+Src/OSD/PS5/PS5Pad.cpp Src/OSD/PS5/Menu.cpp Src/OSD/PS5/MenuLayout.cpp
+Src/Pkgs/imgui/imgui.cpp Src/Pkgs/imgui/imgui_draw.cpp Src/Pkgs/imgui/imgui_tables.cpp
+Src/Pkgs/imgui/imgui_widgets.cpp Src/Pkgs/imgui/imgui_impl_vulkan.cpp
 ps5/compat/libc_missing.c
 """.split()
 # The desktop Audio.cpp, compiled from a copy (see below) so its quoted
@@ -125,7 +128,7 @@ for d in ("Src/Pkgs", "Src/Graphics", "Src/OSD", "Src/Model3"):
         dirs.append(d)
 includes = " ".join("-I" + os.path.join(src, d) for d in dirs)
 includes += f" -I{gen} -I{ps5_include} -I{radv_include}"
-defines = "-DSUPERMODEL_PS5 -DGLEW_STATIC -DGLEW_NO_GLU"
+defines = "-DSUPERMODEL_PS5 -DGLEW_STATIC -DGLEW_NO_GLU -DIMGUI_DISABLE_DEFAULT_SHELL_FUNCTIONS"
 
 def objname(path):
     stem = os.path.splitext(os.path.basename(path))[0]
@@ -262,5 +265,14 @@ if compgen -G "$here/assets/bezels/*.png" > /dev/null; then
     mkdir -p "$app/Assets/Bezels"
     cp "$here"/assets/bezels/*.png "$app/Assets/Bezels/"
 fi
+# The menu's font (OFL, in git) and art (ps5/prepare-menu-art.sh's, not in git).
+mkdir -p "$app/Assets/Fonts"
+cp "$here"/assets/fonts/* "$app/Assets/Fonts/"
+for kind in boxart marquee logo backdrop header; do
+    if compgen -G "$here/assets/menu/$kind/*.png" > /dev/null; then
+        mkdir -p "$app/Assets/Menu/$kind"
+        cp "$here"/assets/menu/$kind/*.png "$app/Assets/Menu/$kind/"
+    fi
+done
 "$tool" self --inspect --file "$app/eboot.bin" > /dev/null
 printf 'Supermodel title: %s (%s bytes)\n' "$app" "$(stat -c %s "$app/eboot.bin")"

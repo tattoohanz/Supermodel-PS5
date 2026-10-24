@@ -22,14 +22,16 @@
  * Main.cpp
  *
  * The PS5 front end (title PPSA97374). A slim version of OSD/SDL/Main.cpp's
- * RunGameSession() and Supermodel(): one game, started straight from
- * /data/supermodel/roms/, on the Vulkan renderer, presented on VideoOut.
+ * RunGameSession() and Supermodel(): the menu (Menu.cpp) lists the games in
+ * /data/supermodel/roms/; the one chosen runs on the Vulkan renderer,
+ * presented on VideoOut, until L3 is held for 2 s, and the menu is back. One
+ * Vulkan context (and VideoOut) for the whole run.
  *
  * The DualSense is joystick 1 (PS5InputSystem.h); sound through sceAudioOut
  * (AudioOut.cpp under the desktop Audio.cpp).
  *
- * The game is srally2 unless /data/supermodel/autoboot.txt names another ROM
- * set (its first line: a set name, or a full path to a .zip).
+ * /data/supermodel/autoboot.txt, when there, names a game to start at once
+ * (its first line: a set name, or a full path to a .zip); the menu after it.
  * /data/supermodel/Config/Supermodel.ini, when present, is applied over the
  * defaults, the same as on the desktop (global section, then the game's).
  */
@@ -52,15 +54,19 @@
 #include "Graphics/Vulkan3D/Vulkan3D.h"
 
 #include "Display.h"
+#include "Menu.h"
 #include "PS5App.h"
 #include "PS5InputSystem.h"
+#include "PS5Pad.h"
 #include "Diag.h"
 #include "Cost.h"
 
 #include <cstdarg>
 #include <cstdio>
+#include <algorithm>
 #include <cstring>
 #include <ctime>
+#include <dirent.h>
 #include <exception>
 #include <memory>
 #include <mutex>
@@ -70,7 +76,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-extern "C" int sceSystemServiceHideSplashScreen(void);
 extern "C" int scePthreadGetaffinity(pthread_t thread, unsigned long long *mask);
 
 /******************************************************************************
@@ -92,6 +97,7 @@ const char *PS5DiagDumpTag()
 static std::string s_gameXMLFilePath;
 static const std::string s_configFilePath = PS5_APP_DIR "/Config/Supermodel.ini";
 static const char s_autobootPath[] = PS5_APP_DIR "/autoboot.txt";
+static const char s_lastGamePath[] = PS5_APP_DIR "/Config/menu-last.txt";
 static const char s_defaultGame[] = "srally2";
 
 static Util::Config::Node s_runtime_config("Global");
@@ -288,13 +294,7 @@ void EndFrameVideo()
 
   // The system keeps showing the title's launch picture over VideoOut until
   // the app takes it down (as XPSemu Chihiro does after its first frame).
-  static bool s_splashHidden = false;
-  if (!s_splashHidden)
-  {
-    s_splashHidden = true;
-    const int rc = sceSystemServiceHideSplashScreen();
-    InfoLog("Video: first frame presented; splash screen hidden (0x%x).", (unsigned)rc);
-  }
+  PS5HideSplashOnce("game frame");
 }
 
 /******************************************************************************
@@ -324,11 +324,12 @@ static void SleepUntilNs(uint64_t target)
   }
 }
 
-static std::string ReadAutoboot()
+// The first line of a small text file, trimmed; empty when there is none.
+static std::string ReadLine(const char *path)
 {
-  FILE *f = fopen(s_autobootPath, "r");
+  FILE *f = fopen(path, "r");
   if (!f)
-    return s_defaultGame;
+    return std::string();
   char line[512] = "";
   if (!fgets(line, sizeof(line), f))
     line[0] = '\0';
@@ -339,9 +340,6 @@ static std::string ReadAutoboot()
   const char *start = line;
   while (*start == ' ' || *start == '\t')
     start++;
-  if (*start == '\0')
-    return s_defaultGame;
-  InfoLog("autoboot.txt names '%s'.", start);
   return start;
 }
 
@@ -417,9 +415,107 @@ static void CalcScreenGeometry(unsigned totalX, unsigned totalY, bool keepAspect
   *yOffset = (totalY - *yRes) / 2;
 }
 
-static int RunSession()
+/*
+ * The games: the .zip files in /data/supermodel/roms/ named after a ROM set
+ * in Games.xml, by title.
+ */
+static std::vector<MenuGame> ScanGames(const GameLoader &loader)
 {
-  s_gameXMLFilePath = std::string(PS5AppTitleDir()) + "/Config/Games.xml";
+  std::vector<MenuGame> games;
+  const auto &known = loader.GetGames();
+  DIR *dir = opendir(PS5_APP_ROMS);
+  if (!dir)
+  {
+    ErrorLog("Games: '%s' cannot be read.", PS5_APP_ROMS);
+    return games;
+  }
+  while (dirent *e = readdir(dir))
+  {
+    std::string name = e->d_name;
+    if (name.size() < 5)
+      continue;
+    std::string ext = name.substr(name.size() - 4);
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+    if (ext != ".zip")
+      continue;
+    std::string set = name.substr(0, name.size() - 4);
+    std::transform(set.begin(), set.end(), set.begin(), ::tolower);
+    auto it = known.find(set);
+    if (it == known.end())
+    {
+      InfoLog("Games: '%s' is not a set in Games.xml; left out.", name.c_str());
+      continue;
+    }
+    const Game &game = it->second;
+    MenuGame g;
+    g.entry.set = set;
+    g.entry.title = game.title;
+    g.entry.manufacturer = game.manufacturer;
+    g.entry.version = game.version;
+    g.entry.year = game.year;
+    g.entry.hardware = "Model 3 Step " + game.stepping;
+    g.entry.sound = game.mpeg_board;
+    g.parent = game.parent;
+    g.zipPath = std::string(PS5_APP_ROMS) + "/" + name;
+    MenuFindArt(g);
+    games.push_back(g);
+  }
+  closedir(dir);
+  std::sort(games.begin(), games.end(), [](const MenuGame &a, const MenuGame &b)
+  {
+    return strcasecmp(a.entry.title.c_str(), b.entry.title.c_str()) < 0;
+  });
+  InfoLog("Games: %d in %s.", (int)games.size(), PS5_APP_ROMS);
+  for (const MenuGame &g : games)
+    InfoLog("Games:   %-10s %s; art:%s%s%s%s", g.entry.set.c_str(), g.entry.title.c_str(),
+      g.marquee.empty() ? "" : " marquee", g.boxart.empty() ? "" : " box", g.backdrop.empty() ? "" : " backdrop",
+      g.logo.empty() ? "" : " logo");
+  return games;
+}
+
+static int FindGame(const std::vector<MenuGame> &games, const std::string &nameOrPath)
+{
+  for (size_t i = 0; i < games.size(); i++)
+    if (games[i].entry.set == nameOrPath || games[i].zipPath == nameOrPath)
+      return (int)i;
+  return -1;
+}
+
+/*
+ * One game, until L3 is held for 2 s (0), or until it fails to start (1).
+ * Everything it makes is gone again when it returns, but the Vulkan context
+ * and the pad's handle (PS5Pad.cpp), which are the app's.
+ */
+static int RunSession(const GameLoader &loader, const MenuGame &choice)
+{
+  CModel3 *Model3 = nullptr;
+  CInputs *Inputs = nullptr;
+  Vulkan3D::CVulkan2D *Render2D = nullptr;
+  Vulkan3D::CVulkan3D *Render3D = nullptr;
+  bool audioOpen = false;
+  bool running = false;  // Reset done: the threads run and NVRAM is worth saving
+  auto release = [&]()
+  {
+    if (Model3)
+      Model3->PauseThreads();
+    if (running)
+      SaveNVRAM(Model3);
+    if (audioOpen)
+      CloseAudio();
+    if (s_vkContext && s_vkContext->Device())
+      vkDeviceWaitIdle(s_vkContext->Device());
+    delete Render2D;
+    delete Render3D;
+    delete Model3;
+    delete Inputs;
+  };
+  auto fail = [&](const char *what)
+  {
+    ErrorLog("Session: %s; back to the menu.", what);
+    PS5Notify((std::string("Supermodel: ") + choice.entry.title + ": " + what).c_str());
+    release();
+    return 1;
+  };
 
   // Configuration: defaults, Supermodel.ini's global section, the game's section.
   Util::Config::Node fileConfig("Global");
@@ -432,26 +528,11 @@ static int RunSession()
     InfoLog("Config: no '%s'; using the defaults.", s_configFilePath.c_str());
 
   // The game.
-  std::string rom = ReadAutoboot();
-  std::string romPath = rom.find('/') != std::string::npos ? rom : std::string(PS5_APP_ROMS) + "/" + rom + ".zip";
-  InfoLog("Game: loading '%s' (game list '%s').", romPath.c_str(), s_gameXMLFilePath.c_str());
-  if (!FileExists(romPath))
-  {
-    ErrorLog("Game: '%s' is not there. Copy %s.zip to %s/.", romPath.c_str(), rom.c_str(), PS5_APP_ROMS);
-    PS5Notify((std::string("Supermodel: ") + romPath + " not found").c_str());
-    return 1;
-  }
+  InfoLog("Game: loading '%s'.", choice.zipPath.c_str());
   Game game;
   ROMSet rom_set;
-  {
-    GameLoader loader(s_gameXMLFilePath);
-    if (loader.Load(&game, &rom_set, romPath))
-    {
-      ErrorLog("Game: '%s' could not be loaded (see above).", romPath.c_str());
-      PS5Notify((std::string("Supermodel: can't load ") + romPath).c_str());
-      return 1;
-    }
-  }
+  if (loader.Load(&game, &rom_set, choice.zipPath))
+    return fail("its ROMs could not be loaded (see Supermodel.log)");
   Util::Config::Node defaults = PS5DefaultConfig();
   const PS5GameDefault *gameDefault = FindGameDefault(game);
   if (gameDefault)
@@ -483,15 +564,7 @@ static int RunSession()
       InfoLog("Config: PowerPC at %u MHz (%s).", mhz, from);
   }
 
-  // The display.
-  const bool vsync = s_runtime_config["VSync"].ValueAsDefault<bool>(true);
-  s_vkContext = new Vulkan3D::CVulkanContext();
-  if (Result::OKAY != s_vkContext->InitDevice(PS5DisplayWindow(), false, vsync, ""))
-  {
-    ErrorLog("Vulkan: the renderer could not start (see above).");
-    PS5Notify("Supermodel: Vulkan could not start (see Supermodel.log)");
-    return 1;
-  }
+  // The display (the app's).
   const VkExtent2D extent = s_vkContext->Extent();
   unsigned totalXRes = extent.width, totalYRes = extent.height;
   unsigned xOffset, yOffset, xRes, yRes;
@@ -499,60 +572,42 @@ static int RunSession()
   InfoLog("Video: display %ux%u, game picture %ux%u at %u,%u.", totalXRes, totalYRes, xRes, yRes, xOffset, yOffset);
 
   // The emulator.
-  CModel3 *Model3 = new CModel3(s_runtime_config);
+  Model3 = new CModel3(s_runtime_config);
   if (Result::OKAY != Model3->Init())
-  {
-    ErrorLog("Model 3: Init failed.");
-    return 1;
-  }
+    return fail("the emulator could not start (Init)");
   if (Model3->LoadGame(game, rom_set) != Result::OKAY)
-  {
-    ErrorLog("Model 3: LoadGame failed.");
-    return 1;
-  }
+    return fail("the emulator could not start (LoadGame)");
   rom_set = ROMSet();  // the ROMs are in the emulator now
   LoadNVRAM(Model3);
   ChooseGameBezel(game);
 
   SetAudioType(game.audio);
   if (Result::OKAY != OpenAudio(s_runtime_config))
-    return 1;
+    return fail("the sound could not start");
+  audioOpen = true;
 
   // Inputs: the DualSense.
-  std::shared_ptr<CInputSystem> inputSystem = std::make_shared<CPS5InputSystem>();
-  CInputs *Inputs = new CInputs(inputSystem);
+  Inputs = new CInputs(std::make_shared<CPS5InputSystem>());
   if (!Inputs->Initialize())
-  {
-    ErrorLog("Inputs: Initialize failed.");
-    return 1;
-  }
+    return fail("the controls could not start");
   Inputs->LoadFromConfig(s_runtime_config);
   Inputs->ApplyGameSpecificInputRanges(game);
   Model3->AttachInputs(Inputs);
 
   // Renderers.
-  Vulkan3D::CVulkan2D *Render2D = new Vulkan3D::CVulkan2D(s_runtime_config, *s_vkContext);
-  Vulkan3D::CVulkan3D *Render3D = new Vulkan3D::CVulkan3D(s_runtime_config, game.name, *s_vkContext, *Render2D);
+  Render2D = new Vulkan3D::CVulkan2D(s_runtime_config, *s_vkContext);
+  Render3D = new Vulkan3D::CVulkan3D(s_runtime_config, game.name, *s_vkContext, *Render2D);
   const UpscaleMode upscaleMode = (UpscaleMode)s_runtime_config["UpscaleMode"].ValueAs<int>();
   if (Result::OKAY != Render2D->Init(xOffset, yOffset, xRes, yRes, totalXRes, totalYRes, 0, upscaleMode))
-  {
-    ErrorLog("Vulkan2D: Init failed.");
-    return 1;
-  }
+    return fail("the 2D renderer could not start");
   if (Result::OKAY != Render3D->Init(xOffset, yOffset, xRes, yRes, totalXRes, totalYRes, 0))
-  {
-    ErrorLog("Vulkan3D: Init failed.");
-    return 1;
-  }
+    return fail("the 3D renderer could not start");
   Model3->AttachRenderers(Render2D, Render3D, nullptr);
 
   Model3->Reset();
+  running = true;
   InfoLog("Session: running %s.", game.title.c_str());
-  {
-    char toast[256];
-    snprintf(toast, sizeof(toast), "Supermodel: %s (picture only for now)", game.title.c_str());
-    PS5Notify(toast);
-  }
+  PS5Notify((game.title + ": hold L3 for 2 s for the menu").c_str());
 
   // The loop: one emulated frame per refresh period, as the desktop loop paces it.
   const bool throttle = s_runtime_config["Throttle"].ValueAs<bool>();
@@ -560,8 +615,8 @@ static int RunSession()
   if (refreshHz <= 0.0f)
     refreshHz = 60.0f;
   const uint64_t frameNs = (uint64_t)(1e9 / refreshHz);
-  InfoLog("Session: %.3f Hz pacing%s, display %.3f Hz, vsync %s.", refreshHz, throttle ? "" : " off",
-    PS5DisplayRefreshMilliHz() / 1000.0, vsync ? "on" : "off");
+  InfoLog("Session: %.3f Hz pacing%s, display %.3f Hz.", refreshHz, throttle ? "" : " off",
+    PS5DisplayRefreshMilliHz() / 1000.0);
 
   uint64_t nextTime = NowNs() + frameNs;
   const uint64_t sessionStart = NowNs();
@@ -575,9 +630,24 @@ static int RunSession()
   unsigned long long totalFrames = 0;
   unsigned underrunsAtStat = 0, overrunsAtStat = 0;
   GetAudioBufferStats(&underrunsAtStat, &overrunsAtStat);
+  uint64_t l3Since = 0;
   for (;;)
   {
     Inputs->Poll(&game, xOffset, yOffset, xRes, yRes);
+
+    // L3 held for 2 s: back to the menu (Inputs->Poll has just read the pad).
+    if (PS5PadLast().buttons & PS5_PAD_L3)
+    {
+      if (l3Since == 0)
+        l3Since = NowNs();
+      else if (NowNs() - l3Since >= 2000000000ull)
+      {
+        InfoLog("Session: L3 held for 2 s; back to the menu.");
+        break;
+      }
+    }
+    else
+      l3Since = 0;
 
     const uint64_t t0 = NowNs();
     if (diagNext < 3 && NowNs() - sessionStart >= diagSeconds[diagNext] * 1000000000ull)
@@ -631,13 +701,92 @@ static int RunSession()
     }
   }
 
-  // Not reached yet (no way to quit without controls); kept for when there is.
-  Model3->PauseThreads();
-  SaveNVRAM(Model3);
-  CloseAudio();
-  delete Render2D;
-  delete Render3D;
+  // As the desktop ends a session: threads paused, NVRAM saved, sound closed,
+  // then the renderers and the emulator.
+  release();
+  {
+    uint64_t costNs[PS5_COST__COUNT], costCounts[PS5_COST__COUNT];
+    PS5CostTake(costNs, costCounts);  // the next session starts from nothing
+  }
+  InfoLog("Session: %s stopped after %llu frames.", game.title.c_str(), totalFrames);
   return 0;
+}
+
+/*
+ * The app: the display, the pad and the games once; then the menu and the
+ * game chosen in it, in turn, for good.
+ */
+static int RunApp()
+{
+  s_gameXMLFilePath = std::string(PS5AppTitleDir()) + "/Config/Games.xml";
+  GameLoader loader(s_gameXMLFilePath);
+
+  // The display, for the whole run.
+  s_vkContext = new Vulkan3D::CVulkanContext();
+  if (Result::OKAY != s_vkContext->InitDevice(PS5DisplayWindow(), false, true, ""))
+  {
+    ErrorLog("Vulkan: the renderer could not start (see above).");
+    PS5Notify("Supermodel: Vulkan could not start (see Supermodel.log)");
+    return 1;
+  }
+  PS5PadRead();  // opens the pad, for the menu and every game
+
+  std::vector<MenuGame> games = ScanGames(loader);
+  CPS5Menu menu;
+  const bool haveMenu = menu.Init(*s_vkContext);
+  if (!haveMenu)
+    ErrorLog("Menu: unavailable; the games start one after another instead (see above).");
+
+  int selected = FindGame(games, ReadLine(s_lastGamePath));
+  if (selected < 0)
+    selected = std::max(0, FindGame(games, s_defaultGame));
+  std::string autoboot = ReadLine(s_autobootPath);
+  if (!autoboot.empty())
+    InfoLog("autoboot.txt names '%s'.", autoboot.c_str());
+
+  for (;;)
+  {
+    int choice = -1;
+    if (!autoboot.empty())
+    {
+      choice = FindGame(games, autoboot);
+      if (choice < 0)
+      {
+        ErrorLog("autoboot.txt: '%s' is not among the games; the menu instead.", autoboot.c_str());
+        PS5Notify((std::string("Supermodel: ") + autoboot + " not found").c_str());
+      }
+      autoboot.clear();
+    }
+    if (choice < 0)
+    {
+      if (haveMenu)
+        choice = menu.Run(games, selected);
+      else
+        choice = games.empty() ? -1 : selected;
+      if (choice < 0)
+      {
+        if (!haveMenu)
+        {
+          ErrorLog("Games: none in %s.", PS5_APP_ROMS);
+          PS5Notify("Supermodel: no games in " PS5_APP_ROMS);
+          return 1;
+        }
+        games = ScanGames(loader);
+        continue;
+      }
+    }
+    if (haveMenu)
+      menu.ReleaseTextures();
+    selected = choice;
+    if (FILE *f = fopen(s_lastGamePath, "w"))
+    {
+      fprintf(f, "%s\n", games[choice].entry.set.c_str());
+      fclose(f);
+    }
+    RunSession(loader, games[choice]);
+    if (!haveMenu)
+      selected = (selected + 1) % (int)games.size();
+  }
 }
 
 int main(int, char **)
@@ -655,7 +804,7 @@ int main(int, char **)
   int result = 1;
   try
   {
-    result = RunSession();
+    result = RunApp();
   }
   catch (const std::exception &e)
   {
