@@ -443,6 +443,13 @@ void main()
 	fogRgb += ubo.spotFogColor.rgb * pc.fogParams.y * pc.fogColour.rgb * lobeFog;
 	colour.rgb = mix(colour.rgb, fogRgb, fog);
 
+	// The opaque pass covers its pixel fully, as New3D's WriteOutputs() makes its colour layer do
+	// (alpha 1). Vulkan2D blends the scene over the bottom tile layer by this alpha, so the soft
+	// edge an alpha-tested texture leaves (32/255 to 1, the leaves of a tree) would otherwise let
+	// that layer show through as a fringe around it.
+	if (pc.extra.z > 0.5)
+		colour.a = 1.0;
+
 	// Real3D writes a 1/w depth so nearer fragments compare greater.
 	gl_FragDepth = pc.projection[3][2] * gl_FragCoord.w;
 	outColour = colour;
