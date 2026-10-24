@@ -126,22 +126,50 @@ static Util::Config::Node PS5DefaultConfig()
   config.Set<std::string>("Outputs", "none");
 
   // The DualSense (PS5InputSystem.h has the numbering). The desktop defaults
-  // already put Start on Options, steering on the left stick and the D-pad,
-  // shifting on R1 (up) and L1 (down) and neutral on Cross. On the PS5: Coin
-  // on D-pad up, as in XPSemu Chihiro (Create opens the console's capture
-  // menu), R2 accelerates (or Square), L2 brakes, Circle is the handbrake (or
-  // D-pad down), Triangle changes the view, R3 is Service and the touchpad
-  // click is Test.
+  // already put Start on Options, steering on the left stick, shifting on R1
+  // (up) and L1 (down) and neutral on Cross. On the PS5, as in XPSemu
+  // Chihiro: Coin on D-pad up (Create opens the console's capture menu),
+  // Service on D-pad left, Test on D-pad right (also R3 and the touchpad
+  // click; the D-pad no longer steers). R2 accelerates (or Square), L2
+  // brakes, Circle is the handbrake (or D-pad down), Triangle changes the
+  // view. Games with an analog joystick (Star Wars Trilogy): Cross fires,
+  // Circle is the second fire button. Where the D-pad is the game's joystick
+  // RunSession takes Service and Test off it (ServiceTestForGame).
   config.Set<std::string>("InputCoin1", "JOY1_POV1_UP");
+  config.Set<std::string>("InputSteeringLeft", "NONE");
+  config.Set<std::string>("InputSteeringRight", "NONE");
+  config.Set<std::string>("InputAnalogJoyTrigger", "JOY1_BUTTON1");
+  config.Set<std::string>("InputAnalogJoyEvent", "JOY1_BUTTON2");
   // The pedals are analog (not axis) inputs, which take only half axes: the
   // positive half of a trigger is all of it (0 released, 32767 pressed).
   config.Set<std::string>("InputAccelerator", "JOY1_RZAXIS_POS,JOY1_BUTTON3");
   config.Set<std::string>("InputBrake", "JOY1_ZAXIS_POS");
   config.Set<std::string>("InputHandBrake", "JOY1_BUTTON2,JOY1_POV1_DOWN");
   config.Set<std::string>("InputViewChange", "JOY1_BUTTON4");
-  config.Set<std::string>("InputServiceA", "JOY1_BUTTON10");
-  config.Set<std::string>("InputTestA", "JOY1_BUTTON11");
+  config.Set<std::string>("InputServiceA", "JOY1_POV1_LEFT,JOY1_BUTTON10");
+  config.Set<std::string>("InputTestA", "JOY1_POV1_RIGHT,JOY1_BUTTON11");
   return config;
+}
+
+/*
+ * Service and Test stay off the D-pad where it is the game's joystick (the
+ * fighting games, Virtua Striker, Spikeout: InputJoyLeft/Right are on it),
+ * or every step left or right would open the service menu: R3 and the
+ * touchpad there. Not where Supermodel.ini sets them.
+ */
+static void ServiceTestForGame(const Game &game, const Util::Config::Node &fileConfig,
+  const Util::Config::Node *gameSection)
+{
+  const bool dpadIsJoystick = (game.inputs & (Game::INPUT_JOYSTICK1 | Game::INPUT_JOYSTICK2)) != 0;
+  if (dpadIsJoystick)
+  {
+    const char *const keys[][2] = { { "InputServiceA", "JOY1_BUTTON10" }, { "InputTestA", "JOY1_BUTTON11" } };
+    for (const auto &key : keys)
+      if (!fileConfig.TryGet(key[0]) && !(gameSection && gameSection->TryGet(key[0])))
+        s_runtime_config.Set<std::string>(key[0], key[1]);
+  }
+  InfoLog("Input: Service on %s, Test on %s.", s_runtime_config["InputServiceA"].ValueAs<std::string>().c_str(),
+    s_runtime_config["InputTestA"].ValueAs<std::string>().c_str());
 }
 
 // Per game, over the defaults and under Supermodel.ini (its global section
@@ -545,6 +573,7 @@ static int RunSession(const GameLoader &loader, const MenuGame &choice)
   else
     s_runtime_config = globalConfig;
   InfoLog("Game: %s (%s), stepping %s.", game.title.c_str(), game.name.c_str(), game.stepping.c_str());
+  ServiceTestForGame(game, fileConfig, gameSection);
   {
     unsigned mhz = s_runtime_config["PowerPCFrequency"].ValueAsDefault<unsigned>(0);
     const char *from;
