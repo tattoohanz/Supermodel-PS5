@@ -25,7 +25,8 @@
  * RunGameSession() and Supermodel(): one game, started straight from
  * /data/supermodel/roms/, on the Vulkan renderer, presented on VideoOut.
  *
- * The DualSense is joystick 1 (PS5InputSystem.h); no sound output yet.
+ * The DualSense is joystick 1 (PS5InputSystem.h); sound through sceAudioOut
+ * (AudioOut.cpp under the desktop Audio.cpp).
  *
  * The game is srally2 unless /data/supermodel/autoboot.txt names another ROM
  * set (its first line: a set name, or a full path to a .zip).
@@ -67,7 +68,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-unsigned long long PS5AudioSamplesGenerated();
 extern "C" int sceSystemServiceHideSplashScreen(void);
 
 /******************************************************************************
@@ -103,9 +103,9 @@ static Util::Config::Node PS5DefaultConfig()
   Util::Config::Node config = UpstreamDefaultConfig();
   config.Set("GameXMLFile", s_gameXMLFilePath);
   config.Set<std::string>("ROMPath", PS5_APP_ROMS);
-  // Nothing wakes the asynchronous sound board thread here (no audio
-  // callback yet, see Audio.cpp): run the sound board with each frame.
-  config.Set("AsyncSoundBoardThread", false);
+  // sceAudioOut is stereo (AudioOut.cpp); the four Model 3 channels are
+  // mixed down by Audio.cpp as on a stereo desktop.
+  config.Set("NbSoundChannels", 2);
   config.Set("Vulkan3DEngine", true);
   config.Set("FullScreen", true);
   config.Set("HighPriority", false);
@@ -510,7 +510,8 @@ static int RunSession()
   uint64_t runNs = 0, runMaxNs = 0;
   unsigned frames = 0;
   unsigned long long totalFrames = 0;
-  unsigned long long samplesAtStat = PS5AudioSamplesGenerated();
+  unsigned underrunsAtStat = 0, overrunsAtStat = 0;
+  GetAudioBufferStats(&underrunsAtStat, &overrunsAtStat);
   for (;;)
   {
     Inputs->Poll(&game, xOffset, yOffset, xRes, yRes);
@@ -543,13 +544,16 @@ static int RunSession()
     if (now - statStart >= 5000000000ull)
     {
       const double secs = (now - statStart) / 1e9;
-      const unsigned long long samples = PS5AudioSamplesGenerated();
-      InfoLog("ps5: %.2f FPS, RunFrame avg %.2f ms max %.2f ms, sound %.0f samples/s, frame %llu",
-        frames / secs, runNs / 1e6 / frames, runMaxNs / 1e6, (samples - samplesAtStat) / secs, totalFrames);
+      unsigned underruns = 0, overruns = 0;
+      GetAudioBufferStats(&underruns, &overruns);
+      InfoLog("ps5: %.2f FPS, RunFrame avg %.2f ms max %.2f ms, audio under-runs %u over-runs %u, frame %llu",
+        frames / secs, runNs / 1e6 / frames, runMaxNs / 1e6, underruns - underrunsAtStat, overruns - overrunsAtStat,
+        totalFrames);
       statStart = now;
       runNs = runMaxNs = 0;
       frames = 0;
-      samplesAtStat = samples;
+      underrunsAtStat = underruns;
+      overrunsAtStat = overruns;
     }
   }
 

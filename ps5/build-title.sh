@@ -62,6 +62,10 @@ except FileNotFoundError:
 open(sys.argv[2], "w", encoding="utf-8").write(out)
 PY
 
+# OSD/SDL/Audio.cpp as it is, on AudioOut.cpp's SDL audio: a quoted include
+# looks in the source's own directory first, so it is compiled from here.
+cmp -s "$src/Src/OSD/SDL/Audio.cpp" "$gen/Audio.cpp" || cp "$src/Src/OSD/SDL/Audio.cpp" "$gen/Audio.cpp"
+
 # The 68K core's opcode tables, made by Musashi's generator on the host.
 musashi=$src/Src/CPU/68K/Musashi
 if [[ ! -f $gen/m68kops.c || $gen/m68kops.c -ot $musashi/m68k_in.c ]]; then
@@ -99,10 +103,13 @@ Src/Util/Format.cpp Src/Util/NewConfig.cpp Src/Util/ByteSwap.cpp Src/Util/Config
 Src/GameLoader.cpp Src/ROMSet.cpp
 Src/Network/NetBoard.cpp Src/Network/SimNetBoard.cpp
 Src/OSD/PS5/Main.cpp Src/OSD/PS5/PS5App.cpp Src/OSD/PS5/Display.cpp Src/OSD/PS5/Thread.cpp
-Src/OSD/PS5/Audio.cpp Src/OSD/PS5/FileSystemPath.cpp Src/OSD/PS5/NetLoopback.cpp
+Src/OSD/PS5/AudioOut.cpp Src/OSD/PS5/FileSystemPath.cpp Src/OSD/PS5/NetLoopback.cpp
 Src/OSD/PS5/PS5InputSystem.cpp Src/OSD/PS5/GLStubs.cpp
 ps5/compat/libc_missing.c
 """.split()
+# The desktop Audio.cpp, compiled from a copy (see below) so its quoted
+# "SDLIncludes.h" finds Src/OSD/PS5's rather than the one beside it.
+core.append(os.path.join(gen, "Audio.cpp"))
 musashi = ["Src/CPU/68K/Musashi/m68kcpu.c"] + [os.path.join(gen, f) for f in
     ("m68kops.c", "m68kopac.c", "m68kopdm.c", "m68kopnz.c")]
 

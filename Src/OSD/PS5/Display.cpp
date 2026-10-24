@@ -69,6 +69,11 @@ const char *SDL_GetError(void)
   return s_error;
 }
 
+void PS5SDLSetError(const char *message)
+{
+  snprintf(s_error, sizeof(s_error), "%s", message ? message : "");
+}
+
 void SDL_GetWindowSize(SDL_Window *window, int *w, int *h)
 {
   if (w)
