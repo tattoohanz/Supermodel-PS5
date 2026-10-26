@@ -16,6 +16,8 @@ branch.
 - **A game menu** in the style of SEGA ALL.Net P-ras MULTI, with settings per game: picture (4:3,
   16:9, stretched), resolution, PowerPC speed, CRT filter, anti-aliasing, bezel, glow, music and
   sound effect volume, force feedback. Hold L3 for 2 seconds in a game to go back to it.
+- **A Controls page** for each game (Square in the menu): the DualSense with each of the game's
+  controls on the button that gives it, read from `Supermodel.ini` and the defaults.
 - **Vulkan3D**: the 3D scene at the display's resolution or 1 to 8 times 496x384 (RenderScale),
   the stencil test for layered polygons (car shadows), translucency in New3D's two layers.
 - **Force feedback** of the drive boards on the DualSense's motors.
@@ -24,12 +26,16 @@ branch.
 
 ### Install
 
-1. Copy `PPSA97374/` to `/data/homebrew/` (ShadowMountPlus installs it).
+1. Extract the zip and copy `PPSA97374/` to `/data/homebrew/` (ShadowMountPlus installs it).
 2. Add the line `PPSA97374` to `/data/whitelist.txt` and load `helper.elf` with kstuff, as for XPSemu.
 3. Copy **your own** Model 3 ROM sets (`.zip`, MAME's names) into `/data/supermodel/roms/`.
 4. Start Supermodel and pick a game.
 
-No ROMs, game artwork or bezels of the games are included.
+To update, copy the new `PPSA97374/` over the old one without deleting it first, so your pictures
+in its `Assets/Menu/` stay. `/data/supermodel/` (your settings and NVRAM) is not touched.
+
+No ROMs, game artwork or game bezels are included: the menu shows the games' names until you add
+your own pictures ([Artwork](#artwork)), and Supermodel's own bezel is drawn.
 
 ### Folder layout on the PS5
 
