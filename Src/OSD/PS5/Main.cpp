@@ -150,7 +150,8 @@ static Util::Config::Node PS5DefaultConfig()
   // Triangle, or a mouse (its movement, then left, right, middle and side
   // button; the desktop defaults already have the mouse on the stick's axes
   // and on the guns). Where the D-pad is the game's joystick
-  // GameConfig takes Coin, Service and Test off it (SystemInputsForGame).
+  // GameConfig takes Coin, Service and Test off it, and Service off R3 where
+  // R3 is VR4 (SystemInputsForGame).
   config.Set<std::string>("InputCoin1", "JOY1_POV1_UP");
   config.Set<std::string>("InputSteeringLeft", "NONE");
   config.Set<std::string>("InputSteeringRight", "NONE");
@@ -185,23 +186,31 @@ static Util::Config::Node PS5DefaultConfig()
  * (the fighting games, Virtua Striker, Spikeout: InputJoyUp/Left/Right are on
  * it), or every jump would put in a coin and every step left or right open
  * the service menu: R1, R3 and the touchpad there (R1 is free in those
- * games: their buttons are Cross, Circle, Square and Triangle). Not where
- * Supermodel.ini sets them.
+ * games: their buttons are Cross, Circle, Square and Triangle). Service also
+ * stays off R3 in the games with four view buttons (Daytona USA 2, Scud
+ * Race, Le Mans 24) when VRCycle is off: R3 is VR4 then, and every change to
+ * that view gave a service credit. D-pad left only there, which is free.
+ * (With VRCycle on, the default, the game reads Next View on Triangle and
+ * not VR1-VR4.) Not where Supermodel.ini sets them.
  */
 static void SystemInputsForGame(uint32_t gameInputs, const Util::Config::Node &fileConfig,
   const Util::Config::Node *gameSection, Util::Config::Node &config)
 {
-  const bool dpadIsJoystick = (gameInputs & (Game::INPUT_JOYSTICK1 | Game::INPUT_JOYSTICK2)) != 0;
-  if (dpadIsJoystick)
+  const auto set = [&](const char *key, const char *value)
   {
-    const char *const keys[][2] =
-    {
-      { "InputCoin1", "JOY1_BUTTON6" }, { "InputServiceA", "JOY1_BUTTON10" }, { "InputTestA", "JOY1_BUTTON11" },
-    };
-    for (const auto &key : keys)
-      if (!fileConfig.TryGet(key[0]) && !(gameSection && gameSection->TryGet(key[0])))
-        config.Set<std::string>(key[0], key[1]);
+    if (!fileConfig.TryGet(key) && !(gameSection && gameSection->TryGet(key)))
+      config.Set<std::string>(key, value);
+  };
+  const Util::Config::Node *cycle = config.TryGet("VRCycle");
+  const bool vrCycle = cycle && cycle->ValueAsDefault<bool>(false);
+  if (gameInputs & (Game::INPUT_JOYSTICK1 | Game::INPUT_JOYSTICK2))
+  {
+    set("InputCoin1", "JOY1_BUTTON6");
+    set("InputServiceA", "JOY1_BUTTON10");
+    set("InputTestA", "JOY1_BUTTON11");
   }
+  else if ((gameInputs & Game::INPUT_VR4) && !vrCycle)
+    set("InputServiceA", "JOY1_POV1_LEFT");
 }
 
 // Per game, over the defaults and under Supermodel.ini (its global section
@@ -240,7 +249,7 @@ static const PS5GameDefault *FindGameDefault(const Game &game)
  * The configuration a game runs with: the defaults (and its own among them),
  * Supermodel.ini's global section, its section there, the menu's settings for
  * it (under menuSet, the zip's name), Coin, Service and Test off the D-pad
- * where it is the game's joystick. The session's (RunSession) and the Controls page's
+ * where it is the game's joystick, Service off R3 where R3 is VR4. The session's (RunSession) and the Controls page's
  * (FillMenuBase), so the page shows what the game gets.
  */
 static Util::Config::Node GameConfig(const Util::Config::Node &fileConfig, const std::string &section,

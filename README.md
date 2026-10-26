@@ -81,6 +81,10 @@ light up; Circle or Square goes back.
 | Circle | Handbrake (also D-pad down) | |
 | Triangle | View change | |
 
+Daytona USA 2, Scud Race and Le Mans 24: Triangle steps through the four views. With `VRCycle = 0` in
+`Supermodel.ini`, Circle, Triangle, L3 and R3 are the four view buttons (VR1 to VR4) instead, and
+Service is only on D-pad left.
+
 Star Wars Trilogy: the left stick, and Cross, Circle, Square and Triangle for fire 0, event 0, fire 1
 and event 1 (the names in its input test); L1 turns the stick round, for the duels. A mouse also aims the guns and Star Wars Trilogy's stick, with its buttons.
 
