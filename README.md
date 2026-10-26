@@ -1,3 +1,107 @@
+# Supermodel PS5 (unofficial fork)
+
+> **Unofficial fork** of [Igloo-Garage/Supermodel-VK](https://github.com/Igloo-Garage/Supermodel-VK) for the
+> **PlayStation 5**, maintained by [tattoohanz](https://github.com/tattoohanz). Not affiliated with or
+> endorsed by Igloo-Garage, the Supermodel team, Sega or Sony. Please report problems with this port
+> here, not upstream.
+
+Supermodel, the Sega Model 3 arcade emulator, as a PS5 title, **`PPSA97374`**, on Supermodel-VK's
+Vulkan renderer (RADV), with its data in **`/data/supermodel/`**. The PS5 code is on the **`ps5`**
+branch.
+
+### What this port adds
+
+- **A PS5 front end** (`Src/OSD/PS5`) in place of SDL: Vulkan on VideoOut, sound through
+  sceAudioOut, the DualSense and a USB or Bluetooth mouse as input.
+- **A game menu** in the style of SEGA ALL.Net P-ras MULTI, with settings per game: picture (4:3,
+  16:9, stretched), resolution, PowerPC speed, CRT filter, anti-aliasing, bezel, glow, music and
+  sound effect volume, force feedback. Hold L3 for 2 seconds in a game to go back to it.
+- **Vulkan3D**: the 3D scene at the display's resolution or 1 to 8 times 496x384 (RenderScale),
+  the stencil test for layered polygons (car shadows), translucency in New3D's two layers.
+- **Force feedback** of the drive boards on the DualSense's motors.
+- **Each game's own bezel**, and per-game defaults (Sega Rally 2's PowerPC at 120 MHz, for full
+  speed).
+
+### Install
+
+1. Copy `PPSA97374/` to `/data/homebrew/` (ShadowMountPlus installs it).
+2. Add the line `PPSA97374` to `/data/whitelist.txt` and load `helper.elf` with kstuff, as for XPSemu.
+3. Copy **your own** Model 3 ROM sets (`.zip`, MAME's names) into `/data/supermodel/roms/`.
+4. Start Supermodel and pick a game.
+
+No ROMs, game artwork or bezels of the games are included.
+
+### Folder layout on the PS5
+
+| Path | What it is |
+|---|---|
+| `/data/supermodel/roms/` | Your ROM sets (`.zip`). |
+| `/data/supermodel/Config/Supermodel.ini` | Optional: the desktop build's settings, applied over the defaults (its global section, then the game's). |
+| `/data/supermodel/Config/MenuSettings.ini` | The menu's settings per game (written by the menu; they win over `Supermodel.ini`). |
+| `/data/supermodel/autoboot.txt` | Optional: its first line, a set name or a full path to a `.zip`, starts that game at once. |
+| `/data/supermodel/NVRAM/` | Each game's NVRAM. |
+| `/data/supermodel/Supermodel.log` | The log. |
+
+### Artwork
+
+Your own pictures (`.png`), named after the ROM set (`srally2.png`); a clone also finds its
+parent's.
+
+| Path | What it is |
+|---|---|
+| `/data/supermodel/Bezels/` | A game's bezel beside the 4:3 picture (with the Bezel setting on). Without one, Supermodel's own bezel is drawn. |
+| `/data/homebrew/PPSA97374/Assets/Menu/marquee/` | The cabinet marquees in the menu's list. |
+| `/data/homebrew/PPSA97374/Assets/Menu/boxart/` | The box art in the menu's large frame. |
+| `/data/homebrew/PPSA97374/Assets/Menu/backdrop/` | The picture behind the box art. |
+| `/data/homebrew/PPSA97374/Assets/Menu/logo/` | The game's logo. |
+| `/data/homebrew/PPSA97374/Assets/Menu/header/logo.png` | The menu's own logo at the top. |
+
+`ps5/prepare-menu-art.sh` cuts your originals to the sizes the menu draws them at.
+
+### Controls
+
+**Menu**: Up / Down choose (L1 / R1 five at a time), Cross or Options starts the game, Triangle
+opens its settings (Up / Down choose one, Left / Right change it, Circle closes them).
+
+| DualSense | Driving games | Gun games (The Ocean Hunter, The Lost World, L.A. Machineguns) |
+|---|---|---|
+| Left stick | Steering | Aim |
+| R2 / L2 | Accelerator (also Square) / brake | Trigger / second trigger (also Cross / Circle) |
+| R1 / L1 | Shift up / down | |
+| Cross | Neutral | |
+| Circle | Handbrake (also D-pad down) | |
+| Triangle | View change | |
+
+Star Wars Trilogy: the left stick, and Cross, Circle, Square and Triangle for fire 0, event 0, fire 1
+and event 1 (the names in its input test). A mouse also aims the guns and Star Wars Trilogy's stick, with its buttons.
+
+Every game: Options is Start, D-pad up Coin (Create opens the console's capture menu), D-pad left /
+right Service / Test (R3 / the touchpad where the D-pad is the game's joystick), L3 held 2 s back to
+the menu.
+
+### Building
+
+`ps5/build-title.sh` makes `ps5/dist/PPSA97374/`, linked the way
+[PS5_Vulkan](https://github.com/mihawk-99/PS5_Vulkan) links its RADV titles (`PS5_VULKAN` names
+that checkout, `~/ps5/PS5_Vulkan` by default). Ship `imports.txt` with `eboot.bin`: it belongs to
+that exact build.
+
+### Credits for this port
+
+- **The Supermodel Team** for [Supermodel](https://github.com/trzy/Supermodel), and
+  **[Igloo-Garage](https://github.com/Igloo-Garage)** for Supermodel-VK, which this port builds on
+  (see [`NOTICE.md`](NOTICE.md)).
+- **[mihawk-99](https://github.com/mihawk-99)** for PS5_Vulkan (RADV on the PS5) and its payload
+  SDK fork, and **[ps5-payload-dev](https://github.com/ps5-payload-dev/sdk)** for the payload SDK.
+
+### License
+
+GPL-3.0 or later, like Supermodel.
+
+---
+
+## The original Supermodel-VK README
+
 # Supermodel-VK
 
 **A Vulkan-focused fork of [Supermodel](https://github.com/trzy/Supermodel), the open-source Sega
