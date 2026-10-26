@@ -85,8 +85,9 @@ Star Wars Trilogy: the left stick, and Cross, Circle, Square and Triangle for fi
 and event 1 (the names in its input test); L1 turns the stick round, for the duels. A mouse also aims the guns and Star Wars Trilogy's stick, with its buttons.
 
 Every game: Options is Start, D-pad up Coin (Create opens the console's capture menu), D-pad left /
-right Service / Test (R3 / the touchpad where the D-pad is the game's joystick), L3 held 2 s back to
-the menu.
+right Service / Test, L3 held 2 s back to the menu. Where the D-pad is the game's joystick (Virtua
+Fighter 3, Fighting Vipers 2, Virtua Striker 2, Spikeout), Coin is on R1 and Service / Test on R3 /
+the touchpad.
 
 ### Building
 

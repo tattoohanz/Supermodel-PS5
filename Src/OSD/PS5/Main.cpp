@@ -150,7 +150,7 @@ static Util::Config::Node PS5DefaultConfig()
   // Triangle, or a mouse (its movement, then left, right, middle and side
   // button; the desktop defaults already have the mouse on the stick's axes
   // and on the guns). Where the D-pad is the game's joystick
-  // RunSession takes Service and Test off it (ServiceTestForGame).
+  // GameConfig takes Coin, Service and Test off it (SystemInputsForGame).
   config.Set<std::string>("InputCoin1", "JOY1_POV1_UP");
   config.Set<std::string>("InputSteeringLeft", "NONE");
   config.Set<std::string>("InputSteeringRight", "NONE");
@@ -181,18 +181,23 @@ static Util::Config::Node PS5DefaultConfig()
 }
 
 /*
- * Service and Test stay off the D-pad where it is the game's joystick (the
- * fighting games, Virtua Striker, Spikeout: InputJoyLeft/Right are on it),
- * or every step left or right would open the service menu: R3 and the
- * touchpad there. Not where Supermodel.ini sets them.
+ * Coin, Service and Test stay off the D-pad where it is the game's joystick
+ * (the fighting games, Virtua Striker, Spikeout: InputJoyUp/Left/Right are on
+ * it), or every jump would put in a coin and every step left or right open
+ * the service menu: R1, R3 and the touchpad there (R1 is free in those
+ * games: their buttons are Cross, Circle, Square and Triangle). Not where
+ * Supermodel.ini sets them.
  */
-static void ServiceTestForGame(uint32_t gameInputs, const Util::Config::Node &fileConfig,
+static void SystemInputsForGame(uint32_t gameInputs, const Util::Config::Node &fileConfig,
   const Util::Config::Node *gameSection, Util::Config::Node &config)
 {
   const bool dpadIsJoystick = (gameInputs & (Game::INPUT_JOYSTICK1 | Game::INPUT_JOYSTICK2)) != 0;
   if (dpadIsJoystick)
   {
-    const char *const keys[][2] = { { "InputServiceA", "JOY1_BUTTON10" }, { "InputTestA", "JOY1_BUTTON11" } };
+    const char *const keys[][2] =
+    {
+      { "InputCoin1", "JOY1_BUTTON6" }, { "InputServiceA", "JOY1_BUTTON10" }, { "InputTestA", "JOY1_BUTTON11" },
+    };
     for (const auto &key : keys)
       if (!fileConfig.TryGet(key[0]) && !(gameSection && gameSection->TryGet(key[0])))
         config.Set<std::string>(key[0], key[1]);
@@ -234,8 +239,8 @@ static const PS5GameDefault *FindGameDefault(const Game &game)
 /*
  * The configuration a game runs with: the defaults (and its own among them),
  * Supermodel.ini's global section, its section there, the menu's settings for
- * it (under menuSet, the zip's name), Service and Test off the D-pad where it
- * is the game's joystick. The session's (RunSession) and the Controls page's
+ * it (under menuSet, the zip's name), Coin, Service and Test off the D-pad
+ * where it is the game's joystick. The session's (RunSession) and the Controls page's
  * (FillMenuBase), so the page shows what the game gets.
  */
 static Util::Config::Node GameConfig(const Util::Config::Node &fileConfig, const std::string &section,
@@ -255,7 +260,7 @@ static Util::Config::Node GameConfig(const Util::Config::Node &fileConfig, const
   if (const auto *menu = s_menuSettings.Section(menuSet))
     for (const auto &kv : *menu)
       config.Set<std::string>(kv.first, kv.second);
-  ServiceTestForGame(gameInputs, fileConfig, gameSection, config);
+  SystemInputsForGame(gameInputs, fileConfig, gameSection, config);
   return config;
 }
 
@@ -671,8 +676,8 @@ static int RunSession(const GameLoader &loader, const MenuGame &choice)
   else
     InfoLog("Config: no menu settings for %s.", menuSet.c_str());
   InfoLog("Video: picture %s.", s_runtime_config["WideScreen"].ValueAs<bool>() ? "16:9 (WideScreen, WideBackground as set)" : "4:3");
-  InfoLog("Input: Service on %s, Test on %s.", s_runtime_config["InputServiceA"].ValueAs<std::string>().c_str(),
-    s_runtime_config["InputTestA"].ValueAs<std::string>().c_str());
+  InfoLog("Input: Coin on %s, Service on %s, Test on %s.", s_runtime_config["InputCoin1"].ValueAs<std::string>().c_str(),
+    s_runtime_config["InputServiceA"].ValueAs<std::string>().c_str(), s_runtime_config["InputTestA"].ValueAs<std::string>().c_str());
   {
     unsigned mhz = s_runtime_config["PowerPCFrequency"].ValueAsDefault<unsigned>(0);
     const char *from;
