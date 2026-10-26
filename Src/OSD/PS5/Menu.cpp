@@ -489,10 +489,41 @@ void CPS5Menu::ReleaseTextures()
   m->loader.Clear();
 }
 
+// The DualSense's controls held now, a bit per MenuPadControl (the
+// Controls page lights them).
+static uint32_t PadLive(const PS5PadState &pad)
+{
+  if (!pad.valid)
+    return 0;
+  static const struct { uint32_t bit; MenuPadControl control; } buttons[] =
+  {
+    { PS5_PAD_CROSS, MENU_PAD_CROSS }, { PS5_PAD_CIRCLE, MENU_PAD_CIRCLE }, { PS5_PAD_SQUARE, MENU_PAD_SQUARE },
+    { PS5_PAD_TRIANGLE, MENU_PAD_TRIANGLE }, { PS5_PAD_L1, MENU_PAD_L1 }, { PS5_PAD_R1, MENU_PAD_R1 },
+    { PS5_PAD_L3, MENU_PAD_L3 }, { PS5_PAD_R3, MENU_PAD_R3 }, { PS5_PAD_CREATE, MENU_PAD_CREATE },
+    { PS5_PAD_OPTIONS, MENU_PAD_OPTIONS }, { PS5_PAD_TOUCHPAD, MENU_PAD_TOUCHPAD }, { PS5_PAD_UP, MENU_PAD_UP },
+    { PS5_PAD_DOWN, MENU_PAD_DOWN }, { PS5_PAD_LEFT, MENU_PAD_LEFT }, { PS5_PAD_RIGHT, MENU_PAD_RIGHT },
+  };
+  uint32_t live = 0;
+  for (const auto &b : buttons)
+    if (pad.buttons & b.bit)
+      live |= 1u << b.control;
+  auto far = [](uint8_t v) { return v < 64 || v > 192; };
+  if (pad.l2 > 64)
+    live |= 1u << MENU_PAD_L2;
+  if (pad.r2 > 64)
+    live |= 1u << MENU_PAD_R2;
+  if (far(pad.lx) || far(pad.ly))
+    live |= 1u << MENU_PAD_LSTICK;
+  if (far(pad.rx) || far(pad.ry))
+    live |= 1u << MENU_PAD_RSTICK;
+  return live;
+}
+
 int CPS5Menu::Run(const std::vector<MenuGame> &games, int selected, CMenuSettings &settings)
 {
   const std::vector<MenuSettingDef> &defs = MenuSettingDefs();
   bool settingsFocus = false;
+  bool controlsOpen = false;
   int settingsRow = 0;
   ImGui::SetCurrentContext(m->imgui);
   ImGuiIO &io = ImGui::GetIO();
@@ -531,7 +562,7 @@ int CPS5Menu::Run(const std::vector<MenuGame> &games, int selected, CMenuSetting
     if (waitRelease)
     {
       if ((b & (PS5_PAD_UP | PS5_PAD_DOWN | PS5_PAD_LEFT | PS5_PAD_RIGHT | PS5_PAD_L1 | PS5_PAD_R1 | PS5_PAD_CROSS |
-            PS5_PAD_OPTIONS | PS5_PAD_L3 | PS5_PAD_TRIANGLE | PS5_PAD_CIRCLE)) == 0)
+            PS5_PAD_OPTIONS | PS5_PAD_L3 | PS5_PAD_TRIANGLE | PS5_PAD_CIRCLE | PS5_PAD_SQUARE)) == 0)
         waitRelease = false;
       b = 0;
     }
@@ -553,7 +584,22 @@ int CPS5Menu::Run(const std::vector<MenuGame> &games, int selected, CMenuSetting
         nextRepeat = now + (now - holdStart > 1.5 ? 0.045 : 0.09);
       }
     }
-    if (n > 0 && (pressed & PS5_PAD_TRIANGLE) && !defs.empty())
+    // Square: the chosen game's controls. There every control only lights
+    // up (it is not the menu's), but Circle and Square, which go back.
+    if (controlsOpen)
+    {
+      if (pressed & (PS5_PAD_CIRCLE | PS5_PAD_SQUARE))
+        controlsOpen = false;
+    }
+    else if (n > 0 && (pressed & PS5_PAD_SQUARE))
+    {
+      controlsOpen = true;
+      settingsFocus = false;
+      const MenuGame &g = games[selected];
+      InfoLog("Menu: controls of %s (inputs 0x%x): %d row(s)%s%s.", g.entry.set.c_str(), (unsigned)g.inputs,
+        (int)g.controls.size(), g.controlsMouse.empty() ? "" : "; ", g.controlsMouse.c_str());
+    }
+    else if (n > 0 && (pressed & PS5_PAD_TRIANGLE) && !defs.empty())
       settingsFocus = !settingsFocus;
     else if (settingsFocus && (pressed & PS5_PAD_CIRCLE))
       settingsFocus = false;
@@ -579,7 +625,7 @@ int CPS5Menu::Run(const std::vector<MenuGame> &games, int selected, CMenuSetting
         InfoLog("Menu: %s: %s %s (%s).", g.entry.set.c_str(), def.label, def.choices[choice].label, keys.c_str());
       }
     }
-    else if (n > 0)
+    else if (n > 0 && !controlsOpen)
     {
       if (move)
         selected = (selected + move + n) % n;
@@ -588,7 +634,7 @@ int CPS5Menu::Run(const std::vector<MenuGame> &games, int selected, CMenuSetting
       if (pressed & PS5_PAD_R1)
         selected = std::min(n - 1, selected + 5);
     }
-    if (pressed & (PS5_PAD_CROSS | PS5_PAD_OPTIONS))
+    if (!controlsOpen && (pressed & (PS5_PAD_CROSS | PS5_PAD_OPTIONS)))
     {
       if (n == 0)
       {
@@ -616,11 +662,15 @@ int CPS5Menu::Run(const std::vector<MenuGame> &games, int selected, CMenuSetting
     frame.headerLogo = m->Get(m->headerLogo, true, true, now);
     frame.settingsFocus = settingsFocus;
     frame.settingsRow = settingsRow;
+    frame.controlsOpen = controlsOpen && n > 0;
+    frame.padLive = PadLive(pad);
     if (n > 0)
     {
       const MenuGame &g = games[selected];
       for (const MenuSettingDef &def : defs)
         frame.settings.push_back({ def.label, def.choices[ChoiceOf(def, g, settings)].label });
+      frame.controls = &g.controls;
+      frame.controlsMouse = g.controlsMouse;
       frame.boxart = m->Get(g.boxart, false, true, now);
       frame.backdrop = m->Get(g.backdrop, false, true, now);
       frame.logo = m->Get(g.logo, false, true, now);

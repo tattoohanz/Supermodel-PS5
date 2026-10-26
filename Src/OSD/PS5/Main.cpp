@@ -55,6 +55,7 @@
 
 #include "Display.h"
 #include "Menu.h"
+#include "MenuControls.h"
 #include "PS5App.h"
 #include "PS5InputSystem.h"
 #include "PS5Pad.h"
@@ -185,19 +186,17 @@ static Util::Config::Node PS5DefaultConfig()
  * or every step left or right would open the service menu: R3 and the
  * touchpad there. Not where Supermodel.ini sets them.
  */
-static void ServiceTestForGame(const Game &game, const Util::Config::Node &fileConfig,
-  const Util::Config::Node *gameSection)
+static void ServiceTestForGame(uint32_t gameInputs, const Util::Config::Node &fileConfig,
+  const Util::Config::Node *gameSection, Util::Config::Node &config)
 {
-  const bool dpadIsJoystick = (game.inputs & (Game::INPUT_JOYSTICK1 | Game::INPUT_JOYSTICK2)) != 0;
+  const bool dpadIsJoystick = (gameInputs & (Game::INPUT_JOYSTICK1 | Game::INPUT_JOYSTICK2)) != 0;
   if (dpadIsJoystick)
   {
     const char *const keys[][2] = { { "InputServiceA", "JOY1_BUTTON10" }, { "InputTestA", "JOY1_BUTTON11" } };
     for (const auto &key : keys)
       if (!fileConfig.TryGet(key[0]) && !(gameSection && gameSection->TryGet(key[0])))
-        s_runtime_config.Set<std::string>(key[0], key[1]);
+        config.Set<std::string>(key[0], key[1]);
   }
-  InfoLog("Input: Service on %s, Test on %s.", s_runtime_config["InputServiceA"].ValueAs<std::string>().c_str(),
-    s_runtime_config["InputTestA"].ValueAs<std::string>().c_str());
 }
 
 // Per game, over the defaults and under Supermodel.ini (its global section
@@ -230,6 +229,34 @@ static const PS5GameDefault *FindGameDefault(const std::string &name, const std:
 static const PS5GameDefault *FindGameDefault(const Game &game)
 {
   return FindGameDefault(game.name, game.parent);
+}
+
+/*
+ * The configuration a game runs with: the defaults (and its own among them),
+ * Supermodel.ini's global section, its section there, the menu's settings for
+ * it (under menuSet, the zip's name), Service and Test off the D-pad where it
+ * is the game's joystick. The session's (RunSession) and the Controls page's
+ * (FillMenuBase), so the page shows what the game gets.
+ */
+static Util::Config::Node GameConfig(const Util::Config::Node &fileConfig, const std::string &section,
+  const std::string &menuSet, const PS5GameDefault *gameDefault, uint32_t gameInputs)
+{
+  Util::Config::Node defaults = PS5DefaultConfig();
+  if (gameDefault)
+    defaults.Set("PowerPCFrequency", gameDefault->ppcMHz);
+  Util::Config::Node globalConfig("Global");
+  Util::Config::MergeINISections(&globalConfig, defaults, fileConfig);
+  const Util::Config::Node *gameSection = fileConfig.TryGet(section);
+  Util::Config::Node config("Global");
+  if (gameSection)
+    Util::Config::MergeINISections(&config, globalConfig, *gameSection);
+  else
+    config = globalConfig;
+  if (const auto *menu = s_menuSettings.Section(menuSet))
+    for (const auto &kv : *menu)
+      config.Set<std::string>(kv.first, kv.second);
+  ServiceTestForGame(gameInputs, fileConfig, gameSection, config);
+  return config;
 }
 
 /******************************************************************************
@@ -517,6 +544,7 @@ static std::vector<MenuGame> ScanGames(const GameLoader &loader)
     g.entry.hardware = "Model 3 Step " + game.stepping;
     g.entry.sound = game.mpeg_board;
     g.parent = game.parent;
+    g.inputs = game.inputs;
     g.zipPath = std::string(PS5_APP_ROMS) + "/" + name;
     MenuFindArt(g);
     games.push_back(g);
@@ -536,7 +564,8 @@ static std::vector<MenuGame> ScanGames(const GameLoader &loader)
 
 /*
  * For each game, what it gets for the menu settings' keys from the defaults
- * and Supermodel.ini (read again each time, as it may have been edited).
+ * and Supermodel.ini (read again each time, as it may have been edited), and
+ * its controls for the Controls page from the configuration it runs with.
  */
 static void FillMenuBase(std::vector<MenuGame> &games)
 {
@@ -545,6 +574,8 @@ static void FillMenuBase(std::vector<MenuGame> &games)
     Util::Config::FromINIFile(&fileConfig, s_configFilePath);
   for (MenuGame &g : games)
   {
+    MenuControlsFor(GameConfig(fileConfig, g.entry.set, g.entry.set, FindGameDefault(g.entry.set, g.parent), g.inputs),
+      g.inputs, g.controls, g.controlsMouse);
     Util::Config::Node defaults = PS5DefaultConfig();
     if (const PS5GameDefault *d = FindGameDefault(g.entry.set, g.parent))
       defaults.Set("PowerPCFrequency", d->ppcMHz);
@@ -624,34 +655,24 @@ static int RunSession(const GameLoader &loader, const MenuGame &choice)
   ROMSet rom_set;
   if (loader.Load(&game, &rom_set, choice.zipPath))
     return fail("its ROMs could not be loaded (see Supermodel.log)");
-  Util::Config::Node defaults = PS5DefaultConfig();
   const PS5GameDefault *gameDefault = FindGameDefault(game);
-  if (gameDefault)
-    defaults.Set("PowerPCFrequency", gameDefault->ppcMHz);
-  Util::Config::Node globalConfig("Global");
-  Util::Config::MergeINISections(&globalConfig, defaults, fileConfig);
   const Util::Config::Node *gameSection = fileConfig.TryGet(game.name);
-  if (gameSection)
-    Util::Config::MergeINISections(&s_runtime_config, globalConfig, *gameSection);
-  else
-    s_runtime_config = globalConfig;
-  InfoLog("Game: %s (%s), stepping %s.", game.title.c_str(), game.name.c_str(), game.stepping.c_str());
   // The menu's settings for the game (MenuSettings.ini), over everything.
   // The menu keeps them under the zip's name (choice.entry.set), which is not
   // always the set the loader finds in it (harley.zip can hold harleya).
   const std::string &menuSet = choice.entry.set;
+  s_runtime_config = GameConfig(fileConfig, game.name, menuSet, gameDefault, game.inputs);
+  InfoLog("Game: %s (%s), stepping %s.", game.title.c_str(), game.name.c_str(), game.stepping.c_str());
   if (menuSet != game.name)
     InfoLog("Config: '%s.zip' holds the set %s; the menu settings are those of %s.", menuSet.c_str(), game.name.c_str(), menuSet.c_str());
   if (const auto *menu = s_menuSettings.Section(menuSet))
     for (const auto &kv : *menu)
-    {
-      s_runtime_config.Set<std::string>(kv.first, kv.second);
       InfoLog("Config: %s = %s (menu settings).", kv.first.c_str(), kv.second.c_str());
-    }
   else
     InfoLog("Config: no menu settings for %s.", menuSet.c_str());
   InfoLog("Video: picture %s.", s_runtime_config["WideScreen"].ValueAs<bool>() ? "16:9 (WideScreen, WideBackground as set)" : "4:3");
-  ServiceTestForGame(game, fileConfig, gameSection);
+  InfoLog("Input: Service on %s, Test on %s.", s_runtime_config["InputServiceA"].ValueAs<std::string>().c_str(),
+    s_runtime_config["InputTestA"].ValueAs<std::string>().c_str());
   {
     unsigned mhz = s_runtime_config["PowerPCFrequency"].ValueAsDefault<unsigned>(0);
     const char *from;

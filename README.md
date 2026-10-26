@@ -61,7 +61,10 @@ parent's.
 ### Controls
 
 **Menu**: Up / Down choose (L1 / R1 five at a time), Cross or Options starts the game, Triangle
-opens its settings (Up / Down choose one, Left / Right change it, Circle closes them).
+opens its settings (Up / Down choose one, Left / Right change it, Circle closes them), Square shows its
+controls: a pad with each of the game's controls on the DualSense button that gives it, read from
+`Supermodel.ini` and the defaults, so a mapping changed there shows as it is. Press a button to see it
+light up; Circle or Square goes back.
 
 | DualSense | Driving games | Gun games (The Ocean Hunter, The Lost World, L.A. Machineguns) |
 |---|---|---|
@@ -73,7 +76,7 @@ opens its settings (Up / Down choose one, Left / Right change it, Circle closes 
 | Triangle | View change | |
 
 Star Wars Trilogy: the left stick, and Cross, Circle, Square and Triangle for fire 0, event 0, fire 1
-and event 1 (the names in its input test). A mouse also aims the guns and Star Wars Trilogy's stick, with its buttons.
+and event 1 (the names in its input test); L1 turns the stick round, for the duels. A mouse also aims the guns and Star Wars Trilogy's stick, with its buttons.
 
 Every game: Options is Start, D-pad up Coin (Create opens the console's capture menu), D-pad left /
 right Service / Test (R3 / the touchpad where the D-pad is the game's joystick), L3 held 2 s back to

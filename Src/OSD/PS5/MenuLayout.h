@@ -26,6 +26,7 @@
 
 #include "imgui/imgui.h"
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -56,6 +57,28 @@ struct MenuSettingRow
   std::string value;   // "16:9"
 };
 
+// The DualSense's controls, for the Controls page.
+enum MenuPadControl
+{
+  MENU_PAD_CROSS, MENU_PAD_CIRCLE, MENU_PAD_SQUARE, MENU_PAD_TRIANGLE,
+  MENU_PAD_L1, MENU_PAD_R1, MENU_PAD_L2, MENU_PAD_R2, MENU_PAD_L3, MENU_PAD_R3,
+  MENU_PAD_CREATE, MENU_PAD_OPTIONS, MENU_PAD_TOUCHPAD,
+  MENU_PAD_UP, MENU_PAD_DOWN, MENU_PAD_LEFT, MENU_PAD_RIGHT,
+  MENU_PAD_LSTICK, MENU_PAD_RSTICK,
+  MENU_PAD__COUNT
+};
+
+// One of a game's controls on the Controls page (MenuControls.h): what it
+// does, on which of the DualSense's controls.
+struct MenuControlRow
+{
+  std::string function;                     // "Accelerator"
+  MenuPadControl control = MENU_PAD_CROSS;  // where its line points
+  std::string name;                         // "R2", "Left stick left"
+  int ways = 0;                             // a stick's whole axis: 1 left and right, 2 up and down
+  bool system = false;                      // Start, Coin, Service, Test, the menu
+};
+
 struct MenuFrame
 {
   const std::vector<MenuEntry> *games = nullptr;
@@ -72,6 +95,13 @@ struct MenuFrame
   std::vector<MenuSettingRow> settings;  // the chosen game's
   bool settingsFocus = false;            // Triangle: the D-pad works on the settings
   int settingsRow = 0;
+  // The Controls page (Square): the chosen game's controls, what a mouse
+  // does in it ("" none), and the DualSense's controls held now (a bit per
+  // MenuPadControl), lit.
+  bool controlsOpen = false;
+  const std::vector<MenuControlRow> *controls = nullptr;
+  std::string controlsMouse;
+  uint32_t padLive = 0;
 };
 
 void MenuDraw(ImDrawList *draw, const MenuFrame &frame, ImVec2 origin, float scale);

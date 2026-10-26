@@ -155,6 +155,10 @@ namespace
     case '^':
       c.dl->AddTriangle(c.P(cx, cy - r), c.P(cx + r, cy + r * 0.8f), c.P(cx - r, cy + r * 0.8f), C(80, 220, 180), c.S(3.0f));
       break;
+    case 's':
+      c.dl->AddRect(c.P(cx - r * 0.85f, cy - r * 0.85f), c.P(cx + r * 0.85f, cy + r * 0.85f), C(240, 150, 220), 0.0f, 0,
+        c.S(3.0f));
+      break;
     case 'd':  // D-pad up and down
       c.dl->AddTriangleFilled(c.P(cx, cy - 11), c.P(cx + 7, cy - 3), c.P(cx - 7, cy - 3), C(230, 230, 240));
       c.dl->AddTriangleFilled(c.P(cx, cy + 11), c.P(cx - 7, cy + 3), c.P(cx + 7, cy + 3), C(230, 230, 240));
@@ -387,17 +391,203 @@ namespace
     Text(c, f.medium, 24, (x0 + x1) * 0.5f - TextWidth(c, f.medium, 24, note) * 0.5f, y1 - 52, C(170, 200, 220), note, 1.0f);
   }
 
+
+  // The Controls page (Square): a pad in the PlayStation layout (a plain
+  // drawing, not the DualSense's own look) over the menu, each of the
+  // chosen game's controls in a box on the side of the pad its button is
+  // on, a dashed line to it; what is held now lit.
+  constexpr float kPadX = 960.0f, kPadY = 585.0f;
+
+  // Where a control is on the pad, from its middle.
+  ImVec2 PadSpot(MenuPadControl control)
+  {
+    switch (control)
+    {
+    case MENU_PAD_CROSS: return ImVec2(150, 10);
+    case MENU_PAD_CIRCLE: return ImVec2(190, -30);
+    case MENU_PAD_SQUARE: return ImVec2(110, -30);
+    case MENU_PAD_TRIANGLE: return ImVec2(150, -70);
+    case MENU_PAD_L1: return ImVec2(-175, -124);
+    case MENU_PAD_R1: return ImVec2(175, -124);
+    case MENU_PAD_L2: return ImVec2(-175, -157);
+    case MENU_PAD_R2: return ImVec2(175, -157);
+    case MENU_PAD_L3: case MENU_PAD_LSTICK: return ImVec2(-82, 48);
+    case MENU_PAD_R3: case MENU_PAD_RSTICK: return ImVec2(82, 48);
+    case MENU_PAD_CREATE: return ImVec2(-118, -92);
+    case MENU_PAD_OPTIONS: return ImVec2(118, -92);
+    case MENU_PAD_TOUCHPAD: return ImVec2(0, -60);
+    case MENU_PAD_UP: return ImVec2(-150, -60);
+    case MENU_PAD_DOWN: return ImVec2(-150, 0);
+    case MENU_PAD_LEFT: return ImVec2(-180, -30);
+    default: return ImVec2(-120, -30);
+    }
+  }
+
+  bool PadLeftHalf(MenuPadControl control)
+  {
+    switch (control)
+    {
+    case MENU_PAD_L1: case MENU_PAD_L2: case MENU_PAD_L3: case MENU_PAD_LSTICK: case MENU_PAD_CREATE:
+    case MENU_PAD_UP: case MENU_PAD_DOWN: case MENU_PAD_LEFT: case MENU_PAD_RIGHT:
+      return true;
+    default:
+      return false;
+    }
+  }
+
+  void Pad(const Ctx &c)
+  {
+    auto at = [&](float x, float y) { return c.P(kPadX + x, kPadY + y); };
+    const ImU32 part = C(53, 58, 78);
+    for (int pass = 0; pass < 2; pass++)
+    {
+      const float g = pass ? 0.0f : 4.0f;
+      const ImU32 col = pass ? C(26, 29, 42) : C(0, 204, 253, 180);
+      for (int side = -1; side <= 1; side += 2)
+      {
+        c.dl->AddRectFilled(at(side * 175 - 52 - g, -174 - g), at(side * 175 + 52 + g, -138 + g), col, c.S(16 + g));
+        c.dl->AddRectFilled(at(side * 175 - 56 - g, -136 - g), at(side * 175 + 56 + g, -112 + g), col, c.S(11 + g));
+        c.dl->AddEllipseFilled(at(side * 178, 88), ImVec2(c.S(82 + g), c.S(138 + g)), col, side * -0.314f, 48);
+      }
+      c.dl->AddRectFilled(at(-245 - g, -118 - g), at(245 + g, 50 + g), col, c.S(58 + g));
+    }
+    for (int side = -1; side <= 1; side += 2)
+    {
+      c.dl->AddRectFilled(at(side * 175 - 52, -174), at(side * 175 + 52, -138), part, c.S(16));
+      c.dl->AddRectFilled(at(side * 175 - 56, -136), at(side * 175 + 56, -112), part, c.S(11));
+    }
+    c.dl->AddRectFilled(at(-92, -104), at(92, -16), C(38, 42, 58), c.S(14));
+    c.dl->AddRect(at(-92, -104), at(92, -16), C(127, 216, 248), c.S(14), 0, c.S(1.5f));
+    for (float x : { -118.0f, 118.0f })
+      c.dl->AddRectFilled(at(x - 7, -105), at(x + 7, -79), part, c.S(7));
+    c.dl->AddRectFilled(at(-162, -72), at(-138, 12), part, c.S(5));
+    c.dl->AddRectFilled(at(-192, -42), at(-108, -18), part, c.S(5));
+    const struct { MenuPadControl control; char symbol; } face[] =
+    {
+      { MENU_PAD_TRIANGLE, '^' }, { MENU_PAD_CIRCLE, 'o' }, { MENU_PAD_CROSS, 'x' }, { MENU_PAD_SQUARE, 's' },
+    };
+    for (const auto &f : face)
+    {
+      const ImVec2 spot = PadSpot(f.control);
+      Button(c, kPadX + spot.x, kPadY + spot.y, f.symbol);
+    }
+    for (float x : { -82.0f, 82.0f })
+    {
+      c.dl->AddCircleFilled(at(x, 48), c.S(40), C(11, 13, 20), 32);
+      c.dl->AddCircleFilled(at(x, 48), c.S(28), part, 32);
+      c.dl->AddCircle(at(x, 48), c.S(28), C(127, 216, 248), 32, c.S(2));
+    }
+    c.dl->AddCircleFilled(at(0, 20), c.S(11), part, 20);
+    c.dl->AddCircle(at(0, 20), c.S(11), C(127, 216, 248), 20, c.S(1.5f));
+  }
+
+  // A small double arrow: the way a stick's whole axis moves.
+  void TwoWays(const Ctx &c, float cx, float cy, bool across, ImU32 col)
+  {
+    const ImVec2 d = across ? ImVec2(1, 0) : ImVec2(0, 1), n(d.y, d.x);
+    const float r = 10.0f, h = 7.0f, w = 5.5f;
+    c.dl->AddLine(c.P(cx - d.x * r, cy - d.y * r), c.P(cx + d.x * r, cy + d.y * r), col, c.S(2.5f));
+    for (int k = -1; k <= 1; k += 2)
+    {
+      const ImVec2 tip(cx + k * d.x * (r + 2), cy + k * d.y * (r + 2));
+      const ImVec2 base(tip.x - k * d.x * h, tip.y - k * d.y * h);
+      ImVec2 p1(base.x + n.x * w, base.y + n.y * w), p2(base.x - n.x * w, base.y - n.y * w);
+      // Clockwise, as anti-aliased filling wants
+      if ((p1.x - tip.x) * (p2.y - tip.y) - (p1.y - tip.y) * (p2.x - tip.x) < 0)
+        std::swap(p1, p2);
+      c.dl->AddTriangleFilled(c.P(tip.x, tip.y), c.P(p1.x, p1.y), c.P(p2.x, p2.y), col);
+    }
+  }
+
+  void ControlsPage(const Ctx &c, const MenuFrame &f)
+  {
+    if (!f.controlsOpen || !f.controls || !f.games || f.selected < 0 || f.selected >= (int)f.games->size())
+      return;
+    c.dl->AddRectFilled(c.P(0, 92), c.P(1920, 1000), C(6, 10, 22));
+    const std::string &title = (*f.games)[f.selected].title;
+    const float titleSize = FitSize(c, f.bold, 40, 1500, title.c_str());
+    Text(c, f.bold, titleSize, 960 - TextWidth(c, f.bold, titleSize, title.c_str()) * 0.5f, 104, C(209, 234, 55),
+      title.c_str());
+    const char *sub = "CONTROLS  -  from Supermodel.ini and the defaults";
+    Text(c, f.medium, 24, 960 - TextWidth(c, f.medium, 24, sub) * 0.5f, 158, C(0, 204, 253), sub, 1.5f);
+    Pad(c);
+
+    // The rows by the side of the pad their control is on, top to bottom as
+    // the controls are, each column centred on the pad.
+    std::vector<const MenuControlRow *> side[2];
+    for (const MenuControlRow &row : *f.controls)
+      side[PadLeftHalf(row.control) ? 0 : 1].push_back(&row);
+    for (int s = 0; s < 2; s++)
+    {
+      std::vector<const MenuControlRow *> &col = side[s];
+      std::stable_sort(col.begin(), col.end(), [](const MenuControlRow *a, const MenuControlRow *b)
+      {
+        return PadSpot(a->control).y < PadSpot(b->control).y;
+      });
+      const int n = (int)col.size();
+      const float top = 200.0f, bottom = 920.0f;
+      const float gap = std::min(70.0f, (bottom - top) / std::max(1, n));
+      const float bh = std::min(56.0f, gap - 10.0f), bw = 440.0f;
+      const float size = bh < 50.0f ? 24.0f : 28.0f;
+      const float bx = s ? 1920.0f - 110.0f - bw : 110.0f;
+      const float y0 = kPadY - ((n - 1) * gap + bh) * 0.5f;
+      for (int k = 0; k < n; k++)
+      {
+        const MenuControlRow &row = *col[k];
+        const float by = y0 + k * gap;
+        const ImVec2 spot = PadSpot(row.control);
+        const ImVec2 to(kPadX + spot.x, kPadY + spot.y), from(s ? bx : bx + bw, by + bh * 0.5f);
+        const float len = std::sqrt((to.x - from.x) * (to.x - from.x) + (to.y - from.y) * (to.y - from.y));
+        for (float d = 0.0f; d < len; d += 12.0f)
+        {
+          const float d1 = std::min(d + 6.0f, len);
+          c.dl->AddLine(c.P(from.x + (to.x - from.x) * d / len, from.y + (to.y - from.y) * d / len),
+            c.P(from.x + (to.x - from.x) * d1 / len, from.y + (to.y - from.y) * d1 / len), C(0, 204, 253, 190), c.S(1.5f));
+        }
+        c.dl->AddCircleFilled(c.P(to.x, to.y), c.S(4), C(0, 204, 253), 12);
+        const bool lit = (f.padLive >> row.control) & 1u;
+        if (lit)
+        {
+          c.dl->AddCircleFilled(c.P(to.x, to.y), c.S(22), C(252, 252, 4, 90), 24);
+          c.dl->AddCircleFilled(c.P(to.x, to.y), c.S(9), C(255, 255, 255), 16);
+        }
+        c.dl->AddRectFilled(c.P(bx, by), c.P(bx + bw, by + bh), C(10, 20, 40, 160), c.S(10));
+        c.dl->AddRect(c.P(bx, by), c.P(bx + bw, by + bh), lit ? C(252, 252, 4) : C(200, 235, 255, row.system ? 90 : 165),
+          c.S(10), 0, c.S(lit ? 3.0f : 2.0f));
+        const float ty = by + (bh - size) * 0.5f - 2.0f;
+        const float arrow = row.ways ? 34.0f : 0.0f;
+        const float nameW = TextWidth(c, f.medium, size, row.name.c_str());
+        const ImU32 nameCol = row.system ? C(127, 184, 208) : C(0, 204, 253);
+        Text(c, f.medium, size, bx + bw - 22 - arrow - nameW, ty, nameCol, row.name.c_str(), 1.5f);
+        if (row.ways)
+          TwoWays(c, bx + bw - 22 - 13, by + bh * 0.5f, row.ways == 1, nameCol);
+        const float fnW = bw - 22 - arrow - nameW - 22 - 16;
+        const float fnSize = FitSize(c, row.system ? f.medium : f.bold, size, fnW, row.function.c_str());
+        Text(c, row.system ? f.medium : f.bold, fnSize, bx + 22, by + (bh - fnSize) * 0.5f - 2.0f,
+          row.system ? C(184, 200, 220) : C(240, 246, 255), row.function.c_str(), 1.5f);
+      }
+    }
+
+    if (!f.controlsMouse.empty())
+    {
+      const float size = FitSize(c, f.medium, 26, 1700, f.controlsMouse.c_str());
+      Text(c, f.medium, size, 960 - TextWidth(c, f.medium, size, f.controlsMouse.c_str()) * 0.5f, 944, C(220, 232, 245),
+        f.controlsMouse.c_str(), 1.5f);
+    }
+  }
+
   void Footer(const Ctx &c, const MenuFrame &f)
   {
     GlowLine(c, 1016, 50, 1870);
     struct Hint { char symbol; const char *text; };
-    static const Hint list[] = { { 'x', "Start" }, { 'd', "Choose" }, { '^', "Settings" }, { 0, "L1 / R1  Page" },
-      { 0, "Hold L3 in a game: back to this menu" } };
+    static const Hint list[] = { { 'x', "Start" }, { 'd', "Choose" }, { '^', "Settings" }, { 's', "Controls" },
+      { 0, "L1 / R1  Page" }, { 0, "Hold L3 in a game: back to this menu" } };
     static const Hint settings[] = { { 'x', "Start" }, { 'd', "Choose" }, { 0, "Left / Right  Change" },
       { 'o', "Back" } };
-    const Hint *hints = f.settingsFocus ? settings : list;
-    const int count = f.settingsFocus ? 4 : 5;
-    float widths[5];
+    static const Hint controls[] = { { 0, "Press a button to try it" }, { 'o', "Back" } };
+    const Hint *hints = f.controlsOpen ? controls : f.settingsFocus ? settings : list;
+    const int count = f.controlsOpen ? 2 : f.settingsFocus ? 4 : 6;
+    float widths[6];
     float total = 0.0f;
     for (int i = 0; i < count; i++)
     {
@@ -428,5 +618,6 @@ void MenuDraw(ImDrawList *draw, const MenuFrame &frame, ImVec2 origin, float sca
   SettingsPanel(c, frame);
   if (frame.games && !frame.games->empty())
     List(c, frame);
+  ControlsPage(c, frame);
   Footer(c, frame);
 }

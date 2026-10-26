@@ -19,7 +19,9 @@
  * left stick) chooses, L1/R1 move a page, Cross or Options starts the game.
  * Triangle puts the D-pad on the game's settings (MenuSettings.h): up and
  * down choose one, left and right change it (saved at once), Circle or
- * Triangle goes back to the list.
+ * Triangle goes back to the list. Square shows the game's controls
+ * (MenuControls.h): there every control only lights up, to try it, and
+ * Circle or Square goes back.
  */
 
 #ifndef INCLUDED_PS5_MENU_H
@@ -45,6 +47,11 @@ struct MenuGame
   // (the defaults and Supermodel.ini), "1" or "0": what the menu shows when
   // it has not set one itself.
   std::map<std::string, std::string> base;
+  // Its inputs (Game::INPUT_*), and its controls on the DualSense and the
+  // mouse for the Controls page, from the configuration it runs with.
+  uint32_t inputs = 0;
+  std::vector<MenuControlRow> controls;
+  std::string controlsMouse;
 };
 
 // Fills in the art's paths: the set's own, else its parent's, else an alias's.
