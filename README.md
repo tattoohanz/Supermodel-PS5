@@ -93,6 +93,62 @@ right Service / Test, L3 held 2 s back to the menu. Where the D-pad is the game'
 Fighter 3, Fighting Vipers 2, Virtua Striker 2, Spikeout), Coin is on R1 and Service / Test on R3 /
 the touchpad.
 
+### Region (country)
+
+A Model 3 game keeps its country in its EEPROM, saved in `/data/supermodel/NVRAM/`; most games
+change it with a hidden code in the test menu (Test opens it). Below, ← is Service and → is Test:
+D-pad left / right, or R3 / the touchpad where the D-pad is the game's joystick. Leave with L3 held
+2 s, so the NVRAM is saved. "PS5" marks the codes tried on the console; the others are from
+[Arcade-Projects](https://www.arcade-projects.com/threads/how-do-you-change-regions-on-a-sega-model-3-board.1101/),
+[LaunchBox](https://forums.launchbox-app.com/topic/75942-region-unlock-codes-for-sega-model-3-supermodel/)
+and [Recalbox](https://wiki.recalbox.com/en/tutorials/games/guides/model-3/change-country-and-language-ingame).
+
+| Game | Where | On the DualSense | |
+|---|---|---|---|
+| Daytona USA 2, Power Edition | test menu | Hold Options, press R3, R3, Triangle, VR3, Circle, VR3, Triangle (green, green, blue, yellow, red, yellow, blue), with the four view buttons on (below) | PS5 |
+| Fighting Vipers 2 | GAME ASSIGNMENTS, on COUNTRY | ←, ←, ←, →, →, ← on the D-pad (the joystick here), then the touchpad changes the country | PS5 |
+| Ocean Hunter | GAME ASSIGNMENTS | Options, R1, Options, R1, Options, R1, R1 (1P and 2P Start), with P2 Start on R1 (below) | PS5 |
+| Ski Champ | test menu | Square, L1, Square, L1, ←, ← (blue is Select 1, green Select 3) | PS5 |
+| Virtua Fighter 3 | GAME ASSIGNMENTS | COUNTRY is there: R3 moves to it, the touchpad changes it | PS5 |
+| Get Bass / Sega Bass Fishing | CRT TEST 2/2, then GAME ASSIGNMENTS | ← four times in CRT TEST 2/2, exit; ← three times in GAME ASSIGNMENTS, then hold ← and press the touchpad | |
+| Harley-Davidson | GAME ASSIGNMENTS | R1, R1, L1, L1, Triangle, Cross, Triangle, Cross | |
+| L.A. Machineguns | test menu | Options, Options, ←, Options, Options, Options, ←, → | |
+| Le Mans 24 | test menu | Options, Options, ←, ←, Options, → | |
+| Magical Truck Adventure | test menu | Options, Options, ←, Options, ←, → (Japan only) | |
+| Scud Race | GAME ASSIGNMENTS | COUNTRY is there (not the Australian version) | |
+| Sega Rally 2 | test menu | ←: 4 short, 2 long, 2 short, 1 long | |
+| Spikeout | GAME ASSIGNMENTS (the cursor on it) | Square, Options, Triangle, Options, Options, Options, Cross, Options, Options | |
+| Spikeout Final Edition | GAME ASSIGNMENTS (the cursor on it) | Hold R3: Triangle, Options, Triangle, Options; let go: Cross, Options, Options, Options, Square, Options, Options, Cross, Options, touchpad | |
+| Star Wars Trilogy | test menu | ←: 3 short, 2 long, 2 short, 1 long | |
+| The Lost World | test menu | Options, Options, ←, Options, ←, → | |
+| Virtua Striker 2 '98 | GAME ASSIGNMENT | R3: hold about 5 s, 3 short, hold about 5 s | |
+| Virtua Striker 2 '99 | GAME ASSIGNMENT | As '98, then R3: 2 short, hold about 5 s (some versions are fixed in the ROM) | |
+| Virtual-On | test menu | Options, Options, ←, Options, Options, Options, ←, ←, → | |
+
+Dirt Devils and Emergency Call Ambulance have the country in their ROMs.
+
+Two codes need lines in `Supermodel.ini` while they are entered (a section applies to that set only,
+not to its clones). Daytona USA 2 reads its four view buttons only with `VRCycle = 0`, and Options +
+L3 is a console shortcut, so VR3 moves to the D-pad down. Ocean Hunter wants a second player's Start,
+and there is one DualSense. Take the lines out afterwards.
+
+```ini
+[ Global ]
+VRCycle = 0
+
+[ daytona2 ]
+InputVR3 = JOY1_POV1_DOWN
+
+[ dayto2pe ]
+InputVR3 = JOY1_POV1_DOWN
+
+[ oceanhun ]
+InputStart2 = JOY1_BUTTON6
+
+[ oceanhuna ]
+InputStart2 = JOY1_BUTTON6
+```
+
 ### Building
 
 `ps5/build-title.sh` makes `ps5/dist/PPSA97374/`, linked the way
