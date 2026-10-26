@@ -19,7 +19,9 @@
  * numbering (JOY1_ or JOY_), or the mouse's. Keys (there is no keyboard),
  * other joysticks and the triggers' negative halves (the DualSense's never
  * go below 0) cannot be pressed here and are left out; so is a negated
- * source.
+ * source. Of the view buttons (Daytona USA 2, Scud Race, Le Mans 24) only
+ * those the game reads: with VRCycle on (the default) Next View, VR1-VR4
+ * otherwise (CInputs::IsVRSelected).
  */
 
 #include "MenuControls.h"
@@ -211,12 +213,17 @@ void MenuControlsFor(const Util::Config::Node &config, uint32_t gameInputs, std:
   mouse.clear();
   std::vector<std::pair<std::string, std::string>> mouseUses;  // word, label
 
+  const Util::Config::Node *cycle = config.TryGet("VRCycle");
+  const bool vrCycle = cycle && cycle->ValueAsDefault<bool>(false);
+
   // Only to list the core's inputs: with no input system, nothing is read.
   CInputs inputs(nullptr);
   for (unsigned i = 0; i < inputs.Count(); i++)
   {
     const std::shared_ptr<CInput> input = inputs[i];
     if (!input->IsConfigurable() || !(input->gameFlags & gameInputs))
+      continue;
+    if (input->gameFlags == Game::INPUT_VR4 && (strcmp(input->id, "VRNext") == 0) != vrCycle)
       continue;
     const Util::Config::Node *node = config.TryGet(std::string("Input") + input->id);
     if (!node || node->Empty())

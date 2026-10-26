@@ -598,6 +598,8 @@ int CPS5Menu::Run(const std::vector<MenuGame> &games, int selected, CMenuSetting
       const MenuGame &g = games[selected];
       InfoLog("Menu: controls of %s (inputs 0x%x): %d row(s)%s%s.", g.entry.set.c_str(), (unsigned)g.inputs,
         (int)g.controls.size(), g.controlsMouse.empty() ? "" : "; ", g.controlsMouse.c_str());
+      for (const auto &row : g.controls)
+        InfoLog("Menu:   %s on %s.", row.function.c_str(), row.name.c_str());
     }
     else if (n > 0 && (pressed & PS5_PAD_TRIANGLE) && !defs.empty())
       settingsFocus = !settingsFocus;
